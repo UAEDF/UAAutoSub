@@ -1,0 +1,58 @@
+#!/bin/sh
+########################################################################
+#
+# author:  Xavier Janssen                                08/03/2011
+# purpose: Create and submit IIHE local job 
+#
+########################################################################
+
+### Usage:
+
+### Basic config
+
+SandboxBaseDir=/localgrid/$USER
+
+### User Config (To be made flexible)
+
+InputSandDir=/localgrid/xjanssen/test
+InputSandList='BuildLibDico.cc;template_UATreeReader.cc;plugins/*.cc;plugins/*.h'
+OutputSandList='output.root'
+Executable='source /localgrid/xjanssen/root_5.26.00e_iihe_default_dcap/root/bin/thisroot.sh;root -q -l -b -n BuildLibDico.cc template_UATreeReader.cc+"()"'
+
+echo $SandboxBaseDir
+echo $InputSandDir
+echo $InputSandList
+echo $OutputSandList
+echo $Executable
+
+### Create Sandbox
+
+jobid=`(date '+%m%d%y%H%M%S')`
+SandboxDir=$SandboxBaseDir/Sandbox_$jobid
+InputSandbox=$SandboxDir/InputSandbox.tgz
+
+mkdir $SandboxDir
+cd $InputSandDir
+ListIn=`(echo $InputSandList | sed "s:;: :g")`
+tar czf $InputSandbox $ListIn
+
+### Creating qsub file
+
+subfile=$SandboxDir/qsub.sh
+ListOut=`(echo $OutputSandList | sed "s:;: :g")`
+
+cp /dev/null $subfile
+echo "#!/bin/bash"                           >> $subfile
+echo "cd /scratch"                           >> $subfile
+echo "mv $InputSandbox ."                    >> $subfile
+echo "tar xzf InputSandbox.tgz"              >> $subfile
+echo "$Executable"                           >> $subfile
+echo "tar czf OutputSandbox.tgz $ListOut"    >> $subfile  
+echo "mv OutputSandbox.tgz $SandboxDir"      >> $subfile
+
+### Submit job
+
+qsub -N $jobid -q localgrid@cream01 -o $SandboxDir/stdout -e $SandboxDir/stderr $subfile
+
+
+
