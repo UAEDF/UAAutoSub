@@ -1,0 +1,275 @@
+#!/bin/bash
+#
+########################################################################
+#
+# author:  Xavier Janssen                                08/03/2011
+# purpose: Create and submit IIHE local job 
+#          Full options !
+#
+########################################################################
+
+
+### Usage:
+
+Manual=$( cat <<SETVAR
+ 
+ options: btask -submit <config>  : Submit job based on <config> file
+          btask -status           : Get status of all jobs
+          btask -get    all       : Retrieve output of all terminated jobs
+          btask -get    <jobid>   : Retrieve output of terminate jobs <jobid>
+                                      (comma separated list)
+          btask -resubmit all     : Resubmit all jobs
+          btask -resubmit <jobid> : Resubmit jobs <jobid> (comma separated list) 
+          btask -kill all         : Kill all jobs
+          btask -kill <jobid>     : Kill jobs <jobid> (comma separated list)
+          btask -hadd <taskname>  : Add all root files of a finished <taskname>            
+                              -get will retrieve the added root file
+          btask -task <taskname>  : Adding to -status, -get, -hadd or -resubmit to 
+                                   restrict action to a single taskname
+          btask -help             : Print this help message 
+
+SETVAR
+)
+
+# ---------------------------- Variables ---------------------------------------
+
+declare -a vJobID
+statusVerbose=0
+
+btask_config=`dirname $0`'/../config/btask.conf'
+workdir=$HOME'/'`( cat $btask_config | grep workdir | awk '{print $2}' )`
+if [ ! -d $workdir ] ; then
+  mkdir -p $workdir 
+fi
+dbdir=$HOME'/'`( cat $btask_config | grep dbdir | awk '{print $2}' )`
+if [ ! -d $dbdir ] ; then
+  mkdir -p $dbdir
+fi
+ongodb=$dbdir'/'`( cat $btask_config | grep ongoing_db | awk '{print $2}' )`
+echo $ongodb
+if [ ! -f $ongodb ];then
+  touch $ongodb
+  echo '[btask] Warning : No ongoingjob.db file -> void file created !!!!!'
+fi
+donedb=$dbdir'/'`( cat $btask_config | grep donejob_db | awk '{print $2}' )`
+if [ ! -f $donedb ];then
+  echo '[btask] Warning : No finishedjob.db file -> void file created !!!!!'
+  touch $donedb
+fi
+
+
+# ---------------------------- Functions ---------------------------------------
+
+Usage()
+{
+echo "$Manual" ; exit ;
+}
+
+UsageCfg()
+{
+echo "Missing some inputs in cfg file ! "; print_config ; exit ;
+}
+
+
+print_config()
+{
+  echo "taskName   = "$taskName
+  echo "inDir      = "$inDir   
+  echo "inList     = "$inList  
+  echo "outDir     = "$outDir   
+  echo "outList    = "$outList 
+  echo "execBase   = "$execBase
+  echo "execMult   = "$execMult
+}
+
+parse_config()
+{
+  echo "--> Parsing cfg file: "$cfg
+  MultipleJobs=1
+  grep taskName  $cfg -q && taskName=`( cat $cfg | grep taskName  | awk -F"=" '{print $2}' | sed "s: ::g")` || UsageCfg
+  grep inDir     $cfg -q && inDir=`(    cat $cfg | grep inDir     | awk -F"=" '{print $2}'               )` || UsageCfg
+  grep inList    $cfg -q && inList=`(   cat $cfg | grep inList    | awk -F"=" '{print $2}'               )` || UsageCfg
+  grep outDir    $cfg -q && outDir=`(   cat $cfg | grep outDir    | awk -F"=" '{print $2}'               )` || UsageCfg
+  grep outList   $cfg -q && outList=`(  cat $cfg | grep outList   | awk -F"=" '{print $2}'               )` || UsageCfg
+  grep execBase  $cfg -q && execBase=`( cat $cfg | grep execBase  | awk -F"=" '{print $2}'               )` || UsageCfg
+  grep execMult  $cfg -q && execMult=`(cat $cfg  | grep execMult  | awk -F"=" '{print $2}'               )` || MultipleJobs=0
+  print_config
+  return 1
+}
+
+submit_jobs(){
+
+  SUBMIT="subjob --inDir $inDir --inList $inList --outList $outList" 
+
+  if [ $MultipleJobs -eq 0 ] ; then 
+    JOB=$execBase
+    JobID=`($SUBMIT $JOB | grep JobID | awk -F":" '{print $2}' | sed "s: ::g")`
+    echo $JobID
+    vJobID[$[${#vJobID[@]}+1]]=$JobID
+
+  else
+
+    SaveIFS=$IFS
+    IFS=';' read -ra JOBS <<< "$execMult"
+    for j in "${JOBS[@]}"; do
+      JOB=`(echo --exec $execBase " , " $j)`
+      JobID=`($SUBMIT $JOB | grep JobID | awk -F":" '{print $2}' | sed "s: ::g")`
+      echo $JobID
+      vJobID[$[${#vJobID[@]}+1]]=$JobID
+    done
+    IFS=$SaveIFS
+
+  fi
+
+}
+
+register_task(){
+  cp /dev/null $workdir/$taskName.cfg
+  print_config >> $workdir/$taskName.cfg
+  echo $taskName' '${vJobID[@]} >> $ongodb
+}
+
+print_status(){
+  statusVerbose=1
+  get_status
+  statusVerbose=0
+}
+
+get_status(){
+
+  if [ "$taskname" == "NULL" ] ; then
+    joblist=`( cat $ongodb | grep -v "#" | sed "s: :;:g")` 
+  else
+    joblist=`( cat $ongodb | grep "$taskname" | grep -v "#" | sed "s: :;:g")`  
+  fi
+  if [ $statusVerbose -eq 1 ] ; then
+    echo "Job id                    Name             User            Time Use S Queue"
+    echo "------------------------- ---------------- --------------- -------- - -----"
+  fi
+
+  for job in $joblist ; do
+    declare -a arr
+    arr=$(echo $job | tr ";" "\n")
+    taskName=`(echo ${arr[0]} | awk '{print $1}')`
+    if [ $statusVerbose -eq 1 ] ; then
+      echo "------------------------- Task : $taskName  ----------------------------"
+    fi
+    for name in ${arr[@]} ; do
+      if [ ! "$name" == "$taskName" ] ; then
+        testFile="/localgrid/$USER/Sandbox_$name/OutputSandbox.tgz"
+        res=`(qstat -u $USER localgrid@cream01 | grep $name)` 
+        if [ ! -z "$res" ]; then
+          if [ $statusVerbose -eq 1 ] ; then 
+            echo $res
+          fi
+        else
+          res=`(ls $testFile 2>&1)`
+          if [ $statusVerbose -eq 1 ] ; then
+            echo $name" DONE -> File: "$res
+          fi
+        fi  
+      fi
+    done
+  done
+
+}
+
+# ----------------------------  Parsing  Arguments  ----------------------------
+
+submit=0
+status=0
+getout=0
+jkill=0
+resubmit=0
+addroot=0
+taskname="NULL"
+
+for arg in $* ; do
+
+  case $arg in
+    -submit)    submit=1   ; option=$2   ; shift ; shift ;;
+    -status)    status=1                         ; shift ;;
+    -get)       getout=1   ; option=$2   ; shift ; shift ;;
+    -kill)      jkill=1    ; option=$2   ; shift ; shift ;;
+    -resubmit)  resubmit=1 ; option=$2   ; shift ; shift ;;
+    -hadd)      addroot=1  ; taskname=$2 ; shift ; shift ;;
+    -task)                   taskname=$2 ; shift ; shift ;;
+    -help)      Usage ;;
+    *) ;;
+  esac
+
+done
+
+# Check arguments (Only one action per command)
+
+test=0
+test=`expr $test + $submit`
+test=`expr $test + $status`
+test=`expr $test + $getout`
+test=`expr $test + $jkill`
+test=`expr $test + $resubmit`
+test=`expr $test + $addroot`
+
+if [ $test -eq 0 ] ; then
+  echo "Error: No valid arguments !"
+  Usage
+fi
+if [ $test -gt 1 ] ; then
+  echo "Error: Can not do submit, status, get, resubmit, hadd at the same time !"
+  Usage
+fi
+
+# ------------------------  SUBMIT  JOB(S) --------------------------------------
+
+if [ $submit -eq 1 ] ; then
+
+  cfg=$option 
+  parse_config
+  submit_jobs
+  register_task
+
+fi # end [ $submit -eq 1 ] 
+
+# ------------------------  KILL JOB(S) -----------------------------------------
+
+if [ $jkill  -eq 1 ] ; then
+
+  echo "Not Implemented !"
+
+fi # end [ $jkill  -eq 1 ]
+
+# ------------------------  RESUBMIT  JOB(S) ------------------------------------
+
+if [ $resubmit -eq 1 ] ; then
+
+  echo "Not Implemented !"
+
+fi # end [ $resubmit -eq 1 ] 
+
+
+# ------------------------  JOB(S) STATUS --------------------------------------
+
+if [ $status -eq 1 ] ; then
+
+  print_status
+
+fi # end [ $status -eq 1 ]
+
+# ------------------------  JOB(S) OUTPUT  RETRIEVAL  --------------------------
+
+if [ $getout -eq 1 ] ; then
+
+  echo "Not Implemented !"
+
+fi # end [ $getout -eq 1 ] 
+
+# ------------------------  JOB(S) OUTPUT  MERGE  ------------------------------
+
+if [ $addroot -eq 1 ] ; then
+
+  echo "Not Implemented !"
+
+fi # end [ $addroot -eq 1 ]
+
+
+ 
