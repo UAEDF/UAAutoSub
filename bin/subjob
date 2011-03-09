@@ -12,47 +12,118 @@
 
 SandboxBaseDir=/localgrid/$USER
 
-### User Config (To be made flexible)
+### User Config (Example)
 
-InputSandDir=/localgrid/xjanssen/test
-InputSandList='BuildLibDico.cc;template_UATreeReader.cc;plugins/*.cc;plugins/*.h'
-OutputSandList='output.root'
-Executable='source /localgrid/xjanssen/root_5.26.00e_iihe_default_dcap/root/bin/thisroot.sh;root -q -l -b -n BuildLibDico.cc template_UATreeReader.cc+"()"'
+#InputSandDir=/localgrid/xjanssen/test
+#InputSandList='BuildLibDico.cc,template_UATreeReader.cc,plugins/*.cc,plugins/*.h'
+#OutputSandList='output.root'
+#Executable='source /localgrid/xjanssen/root_5.26.00e_iihe_default_dcap/root/bin/thisroot.sh,root -q -l -b -n BuildLibDico.cc template_UATreeReader.cc+"()"'
 
-echo $SandboxBaseDir
-echo $InputSandDir
-echo $InputSandList
-echo $OutputSandList
-echo $Executable
+### Create Sandbox directory
+jobid=`(date '+%m%d%y%H%M%S')`
+SandboxDir=$SandboxBaseDir/Sandbox_$jobid
+mkdir $SandboxDir
+cd $SandboxDir
+
+### parse arguments
+
+echo $* | awk '{split($0,a,"--"); for (i=2; i<=5; i++) print a[i]}' > .arglistfile
+InputSandDir=`(  cat .arglistfile | grep "inDir"   | awk -F"inDir"   '{print $2}' )`
+InputSandList=`( cat .arglistfile | grep "inList"  | awk -F"inList"  '{print $2}' )`
+OutputSandList=`(cat .arglistfile | grep "outList" | awk -F"outList" '{print $2}' )`
+Executable=`(    cat .arglistfile | grep "exec"    | awk -F"exec"    '{print $2}' )`
+
+### Start job now
+echo Starting the following process:
+echo ----------------------------------
+echo 'SandboxBaseDir : '$SandboxBaseDir
+echo 'InputSandDir   : ' $InputSandDir
+echo 'InputSandList  : ' $InputSandList
+echo 'OutputSandList : ' $OutputSandList
+echo 'Executable     : ' $Executable
+
+if [ -z "$InputSandDir" ]; then
+  echo InputSandDir empty
+  echo "subjob --inDir <code_directory> --inList <codefile1>,<codefile2>,...<codefileN> --exec <exec1>,<exec2>,...,<execN> --outList <outfile1>,<outfile2>,..,<outfileN>"
+  echo "wildcard allowed !"
+  exit
+fi
+if [ -z "$InputSandList" ]; then
+  echo InputSandList empty
+  echo "subjob --inDir <code_directory> --inList <codefile1>,<codefile2>,...<codefileN> --exec <exec1>,<exec2>,...,<execN> --outList <outfile1>,<outfile2>,..,<outfileN>"
+  echo "wildcard allowed !"
+  exit
+fi
+if [ -z "$OutputSandList" ]; then
+  echo OutputSandList empty
+  echo "subjob --inDir <code_directory> --inList <codefile1>,<codefile2>,...<codefileN> --exec <exec1>,<exec2>,...,<execN> --outList <outfile1>,<outfile2>,..,<outfileN>"
+  echo "wildcard allowed !"
+  exit
+fi
+if [ -z "$Executable" ]; then
+  echo Executable empty
+  echo "subjob --inDir <code_directory> --inList <codefile1>,<codefile2>,...<codefileN> --exec <exec1>,<exec2>,...,<execN> --outList <outfile1>,<outfile2>,..,<outfileN>"
+  echo "wildcard allowed !"
+  exit
+fi
+
+
 
 ### Create Sandbox
 
-jobid=`(date '+%m%d%y%H%M%S')`
-SandboxDir=$SandboxBaseDir/Sandbox_$jobid
-InputSandbox=$SandboxDir/InputSandbox.tgz
-
-mkdir $SandboxDir
 cd $InputSandDir
-ListIn=`(echo $InputSandList | sed "s:;: :g")`
+InputSandbox=$SandboxDir/InputSandbox.tgz
+ListIn=`(echo $InputSandList | sed "s:,: :g")`
+tar czf $InputSandbox $ListIn
+
+
+### Create Sandbox
+
+cd $InputSandDir
+InputSandbox=$SandboxDir/InputSandbox.tgz
+ListIn=`(echo $InputSandList | sed "s:,: :g")`
+tar czf $InputSandbox $ListIn
+
+
+### Create Sandbox
+
+cd $InputSandDir
+InputSandbox=$SandboxDir/InputSandbox.tgz
+ListIn=`(echo $InputSandList | sed "s:,: :g")`
+tar czf $InputSandbox $ListIn
+
+
+### Create Sandbox
+
+cd $InputSandDir
+InputSandbox=$SandboxDir/InputSandbox.tgz
+ListIn=`(echo $InputSandList | sed "s:,: :g")`
 tar czf $InputSandbox $ListIn
 
 ### Creating qsub file
 
 subfile=$SandboxDir/qsub.sh
-ListOut=`(echo $OutputSandList | sed "s:;: :g")`
+ListOut=`(echo $OutputSandList | sed "s:,: :g")`
+Exec=`(echo $Executable | sed "s:,:;:g")`
 
 cp /dev/null $subfile
 echo "#!/bin/bash"                           >> $subfile
 echo "cd /scratch"                           >> $subfile
+echo "mkdir /scratch/$jobid"                 >> $subfile
+echo "cd /scratch/$jobid"                    >> $subfile   
 echo "mv $InputSandbox ."                    >> $subfile
 echo "tar xzf InputSandbox.tgz"              >> $subfile
-echo "$Executable"                           >> $subfile
+echo "$Exec"                                 >> $subfile
+echo "echo ----------------------- List of File at the end on grid node: ">> $subfile
+echo "ls                    "                >> $subfile 
 echo "tar czf OutputSandbox.tgz $ListOut"    >> $subfile  
 echo "mv OutputSandbox.tgz $SandboxDir"      >> $subfile
 
 ### Submit job
-
+echo "JobID           : $jobid"
 qsub -N $jobid -q localgrid@cream01 -o $SandboxDir/stdout -e $SandboxDir/stderr $subfile
-
+echo "Job id                    Name             User            Time Use S Queue"
+echo "------------------------- ---------------- --------------- -------- - -----"
+qstat -u $USER localgrid@cream01 | grep $jobid
 
 
