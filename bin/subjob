@@ -67,32 +67,6 @@ if [ -z "$Executable" ]; then
   exit
 fi
 
-
-
-### Create Sandbox
-
-cd $InputSandDir
-InputSandbox=$SandboxDir/InputSandbox.tgz
-ListIn=`(echo $InputSandList | sed "s:,: :g")`
-tar czf $InputSandbox $ListIn
-
-
-### Create Sandbox
-
-cd $InputSandDir
-InputSandbox=$SandboxDir/InputSandbox.tgz
-ListIn=`(echo $InputSandList | sed "s:,: :g")`
-tar czf $InputSandbox $ListIn
-
-
-### Create Sandbox
-
-cd $InputSandDir
-InputSandbox=$SandboxDir/InputSandbox.tgz
-ListIn=`(echo $InputSandList | sed "s:,: :g")`
-tar czf $InputSandbox $ListIn
-
-
 ### Create Sandbox
 
 cd $InputSandDir
