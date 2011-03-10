@@ -91,7 +91,9 @@ tar czf $InputSandbox $ListIn
 
 subfile=$SandboxDir/qsub.sh
 ListOut=`(echo $OutputSandList | sed "s:,: :g")`
-Exec=`(echo $Executable | sed "s:,:;:g")`
+ListOut=`(echo $ListOut | sed "s:\"::g")`
+#Exec=`(echo $Executable | sed "s:,:;:g")`
+Exec=$Executable
 
 cp /dev/null $subfile
 echo "#!/bin/bash"                           >> $subfile
