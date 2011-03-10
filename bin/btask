@@ -121,7 +121,7 @@ submit_jobs(){
     IFS=';' read -ra JOBS <<< "$execMult"
     for j in "${JOBS[@]}"; do
       iJob=`expr $iJob + 1`
-      JOB=`(echo "--jobid "$taskID"_"$iJob" --exec "$execBase " , " $j)`
+      JOB=`(echo "--jobid "$taskID"_"$iJob" --exec "$execBase " ; " $j)`
       JobID=`($SUBMIT $JOB | grep JobID | awk -F":" '{print $2}' | sed "s: ::g")`
       vJobID[$[${#vJobID[@]}+1]]=$JobID
     done
