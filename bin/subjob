@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 ########################################################################
 #
 # author:  Xavier Janssen                                08/03/2011
@@ -10,7 +10,7 @@
 
 Usage=$( cat <<SETVAR
 
-Usage: subjob --inDir <code_directory> --inList <codefile1>,<codefile2>,...,<codefileN> --exec <exec1>,<exec2>,...,<execN> --outList <outfile1>,<outfile2>,..,<outfileN> 
+Usage: subjob --inDir <code_directory> --inList <codefile1>,<codefile2>,...,<codefileN> --exec <exec1>,<exec2>,...,<execN> --outList <outfile1>,<outfile2>,..,<outfileN> [--sdbdir <SandboxBaseDir>]
 
 wildcard allowed !
 
@@ -19,38 +19,39 @@ SETVAR
 
 ### Basic config
 
+jobid=NULL
 SandboxBaseDir=/localgrid/$USER
 
-### User Config (Example)
-
-#InputSandDir=/localgrid/xjanssen/test
-#InputSandList='BuildLibDico.cc,template_UATreeReader.cc,plugins/*.cc,plugins/*.h'
-#OutputSandList='output.root'
-#Executable='source /localgrid/xjanssen/root_5.26.00e_iihe_default_dcap/root/bin/thisroot.sh,root -q -l -b -n BuildLibDico.cc template_UATreeReader.cc+"()"'
-
-### Create Sandbox directory
-jobid=`(mktemp -p $SandboxBaseDir | awk -F"." '{print $2}')`
-#jobid=`(date '+%m%d%y%H%M%S%N')`
-SandboxDir=$SandboxBaseDir/Sandbox_$jobid
-mkdir $SandboxDir
-cd $SandboxDir
-
 ### parse arguments
+arglistfile=`(mktemp)`
+echo $* | awk '{split($0,a,"--"); n=0 ; for (i in a) n++ ; for (i=2; i<=n; i++) print a[i]}' > $arglistfile
+SandboxBaseDir=`(cat $arglistfile | grep "sdbdir"  | awk -F"sdbdir"  '{print $2}' | sed "s: ::g" )`
+jobid=`(         cat $arglistfile | grep "jobid"   | awk -F"jobid"   '{print $2}' | sed "s: ::g" )`
+InputSandDir=`(  cat $arglistfile | grep "inDir"   | awk -F"inDir"   '{print $2}' )`
+InputSandList=`( cat $arglistfile | grep "inList"  | awk -F"inList"  '{print $2}' )`
+OutputSandList=`(cat $arglistfile | grep "outList" | awk -F"outList" '{print $2}' )`
+Executable=`(    cat $arglistfile | grep "exec"    | awk -F"exec"    '{print $2}' )`
+rm $arglistfile
 
-echo $* | awk '{split($0,a,"--"); for (i=2; i<=5; i++) print a[i]}' > .arglistfile
-InputSandDir=`(  cat .arglistfile | grep "inDir"   | awk -F"inDir"   '{print $2}' )`
-InputSandList=`( cat .arglistfile | grep "inList"  | awk -F"inList"  '{print $2}' )`
-OutputSandList=`(cat .arglistfile | grep "outList" | awk -F"outList" '{print $2}' )`
-Executable=`(    cat .arglistfile | grep "exec"    | awk -F"exec"    '{print $2}' )`
-
-### Start job now
 echo Starting the following process:
 echo ----------------------------------
-echo 'SandboxBaseDir : '$SandboxBaseDir
+echo 'SandboxBaseDir : ' $SandboxBaseDir
+echo 'JOBID:         : ' $jobid
 echo 'InputSandDir   : ' $InputSandDir
 echo 'InputSandList  : ' $InputSandList
 echo 'OutputSandList : ' $OutputSandList
 echo 'Executable     : ' $Executable
+
+
+### Create Sandbox directory
+if [ "$jobid" == "NULL" ] ; then
+  jobid=`(mktemp -p $SandboxBaseDir | awk -F"." '{print $2}')`
+fi
+SandboxDir=$SandboxBaseDir/Sandbox_$jobid
+mkdir $SandboxDir
+cd $SandboxDir
+
+### Start job now
 
 if [ -z "$InputSandDir" ]; then
   echo InputSandDir empty

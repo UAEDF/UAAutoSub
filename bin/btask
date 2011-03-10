@@ -15,21 +15,19 @@ Manual=$( cat <<SETVAR
  
  options: btask -submit <config>  : Submit job based on <config> file
           btask -status           : Get status of all jobs
-          btask -get    all       : Retrieve output of all terminated jobs
-          btask -get    <jobid>   : Retrieve output of terminate jobs <jobid>
-                                      (comma separated list)
-          btask -resubmit all     : Resubmit all jobs
-          btask -resubmit <jobid> : Resubmit jobs <jobid> (comma separated list) 
-          btask -kill all         : Kill all jobs
-          btask -kill <jobid>     : Kill jobs <jobid> (comma separated list)
-          btask -hadd <taskname>  : Add all root files of a finished <taskname>            
-                              -get will retrieve the added root file
-          btask -task <taskname>  : Adding to -status, -get, -hadd or -resubmit to 
-                                   restrict action to a single taskname
+          btask -get              : Retrieve output of all terminated jobs
+          btask -kill             : Kill all jobs
+          btask -task <taskname>  : Adding to -status, -get or -hadd 
+                                    restrict action to a single <taskname>
           btask -help             : Print this help message 
 
 SETVAR
 )
+
+# btask -resubmit all     : Resubmit all jobs
+# btask -resubmit <jobid> : Resubmit jobs <jobid> (comma separated list) 
+# btask -hadd <taskname>  : Add all root files of a finished <taskname>
+#                     -get will retrieve the added root file
 
 # ---------------------------- Variables ---------------------------------------
 
@@ -41,12 +39,11 @@ workdir=$HOME'/'`( cat $btask_config | grep workdir | awk '{print $2}' )`
 if [ ! -d $workdir ] ; then
   mkdir -p $workdir 
 fi
-dbdir=$HOME'/'`( cat $btask_config | grep dbdir | awk '{print $2}' )`
+dbdir=$HOME'/'`( cat $btask_config | grep jobdbdir | awk '{print $2}' )`
 if [ ! -d $dbdir ] ; then
   mkdir -p $dbdir
 fi
 ongodb=$dbdir'/'`( cat $btask_config | grep ongoing_db | awk '{print $2}' )`
-echo $ongodb
 if [ ! -f $ongodb ];then
   touch $ongodb
   echo '[btask] Warning : No ongoingjob.db file -> void file created !!!!!'
@@ -57,6 +54,8 @@ if [ ! -f $donedb ];then
   touch $donedb
 fi
 
+sdbdir=/localgrid/$USER
+sdbdir=`( cat $btask_config | grep sandboxdir | awk '{print $2}' )`
 
 # ---------------------------- Functions ---------------------------------------
 
@@ -84,7 +83,7 @@ print_config()
 
 parse_config()
 {
-  echo "--> Parsing cfg file: "$cfg
+  #echo "--> Parsing cfg file: "$cfg
   MultipleJobs=1
   grep taskName  $cfg -q && taskName=`( cat $cfg | grep taskName  | awk -F"=" '{print $2}' | sed "s: ::g")` || UsageCfg
   grep inDir     $cfg -q && inDir=`(    cat $cfg | grep inDir     | awk -F"=" '{print $2}'               )` || UsageCfg
@@ -93,18 +92,27 @@ parse_config()
   grep outList   $cfg -q && outList=`(  cat $cfg | grep outList   | awk -F"=" '{print $2}'               )` || UsageCfg
   grep execBase  $cfg -q && execBase=`( cat $cfg | grep execBase  | awk -F"=" '{print $2}'               )` || UsageCfg
   grep execMult  $cfg -q && execMult=`(cat $cfg  | grep execMult  | awk -F"=" '{print $2}'               )` || MultipleJobs=0
-  print_config
+  #print_config
   return 1
+}
+
+mkdir_task(){
+  taskID=`(mktemp -p $workdir -t .XXX | awk -F'.' '{print $2}')`
+  taskDir=$workdir/$taskName'_'$taskID
+  taskSdb=$sdbdir/$taskName'_'$taskID
+  mkdir -p $taskDir
+  mkdir -p $taskSdb
 }
 
 submit_jobs(){
 
-  SUBMIT="subjob --inDir $inDir --inList $inList --outList $outList" 
+  SUBMIT="subjob --sdbdir $taskSdb --inDir $inDir --inList $inList --outList $outList" 
+  iJob=0
 
   if [ $MultipleJobs -eq 0 ] ; then 
-    JOB=$execBase
+    iJob=`expr $iJob + 1`
+    JOB=$execBase' --jobid '$taskID'_'$iJob
     JobID=`($SUBMIT $JOB | grep JobID | awk -F":" '{print $2}' | sed "s: ::g")`
-    echo $JobID
     vJobID[$[${#vJobID[@]}+1]]=$JobID
 
   else
@@ -112,9 +120,9 @@ submit_jobs(){
     SaveIFS=$IFS
     IFS=';' read -ra JOBS <<< "$execMult"
     for j in "${JOBS[@]}"; do
-      JOB=`(echo --exec $execBase " , " $j)`
+      iJob=`expr $iJob + 1`
+      JOB=`(echo "--jobid "$taskID"_"$iJob" --exec "$execBase " , " $j)`
       JobID=`($SUBMIT $JOB | grep JobID | awk -F":" '{print $2}' | sed "s: ::g")`
-      echo $JobID
       vJobID[$[${#vJobID[@]}+1]]=$JobID
     done
     IFS=$SaveIFS
@@ -124,9 +132,23 @@ submit_jobs(){
 }
 
 register_task(){
-  cp /dev/null $workdir/$taskName.cfg
-  print_config >> $workdir/$taskName.cfg
-  echo $taskName' '${vJobID[@]} >> $ongodb
+  cp /dev/null $taskDir/$taskName.cfg
+  print_config >> $taskDir/$taskName.cfg
+  echo $taskName'#'$taskID' '${vJobID[@]} >> $ongodb
+  echo "[btask] INFO: The following task ha been started: "$taskName"#"$taskID
+  echo "[btask] INFO: composed of subtask : "${vJobID[@]}
+}
+
+remove_task(){
+  echo "[btask] INFO: Removing task: "$taskName
+  cat $ongodb | grep    "$taskName" >> $donedb 
+  tmpFile=`(mktemp)`
+  cat $ongodb | grep -v "$taskName" >> $tmpFile
+   mv  $tmpFile $ongodb
+#  echo "---- DONE DB -----"
+#  cat $donedb
+#  echo "---- ONGO DB -----"
+#  cat $ongodb 
 }
 
 print_status(){
@@ -135,19 +157,33 @@ print_status(){
   statusVerbose=0
 }
 
+get_taskParam(){
+   taskNAME=`(echo $taskName | awk -F"#" '{print $1}')`
+   taskID=`(echo $taskName | awk -F"#" '{print $2}')`
+   taskDir=$workdir/$taskNAME'_'$taskID
+   taskSdb=$sdbdir/$taskNAME'_'$taskID
+}
+
 get_status(){
 
   if [ "$taskname" == "NULL" ] ; then
-    joblist=`( cat $ongodb | grep -v "#" | sed "s: :;:g")` 
+    joblist1=`( cat $ongodb | sed "s: :;:g")` 
   else
-    joblist=`( cat $ongodb | grep "$taskname" | grep -v "#" | sed "s: :;:g")`  
-  fi
-  if [ $statusVerbose -eq 1 ] ; then
-    echo "Job id                    Name             User            Time Use S Queue"
-    echo "------------------------- ---------------- --------------- -------- - -----"
+    joblist1=`( cat $ongodb | grep "$taskname"  | sed "s: :;:g")`  
   fi
 
-  for job in $joblist ; do
+  if [ ! -z "$joblist1" ] ; then
+    if [ $statusVerbose -eq 1 ] ; then
+      echo "Job ID               Username Queue    Jobname          SessID NDS   TSK Memory Time  S Time "
+      echo "-------------------- -------- -------- ---------------- ------ ----- --- ------ ----- - -----"
+    fi
+  else
+    echo "[btask] INFO: get_status No active task"
+  fi
+
+  ALLJOBDONE=1
+
+  for job in $joblist1 ; do
     declare -a arr
     arr=$(echo $job | tr ";" "\n")
     taskName=`(echo ${arr[0]} | awk '{print $1}')`
@@ -156,12 +192,15 @@ get_status(){
     fi
     for name in ${arr[@]} ; do
       if [ ! "$name" == "$taskName" ] ; then
-        testFile="/localgrid/$USER/Sandbox_$name/OutputSandbox.tgz"
+        get_taskParam
+        testFile=$taskSdb"/Sandbox_$name/OutputSandbox.tgz"
         res=`(qstat -u $USER localgrid@cream01 | grep $name)` 
         if [ ! -z "$res" ]; then
           if [ $statusVerbose -eq 1 ] ; then 
-            echo $res
+            echo "$res"
           fi
+          ALLJOBDONE=0
+          
         else
           res=`(ls $testFile 2>&1)`
           if [ $statusVerbose -eq 1 ] ; then
@@ -172,6 +211,151 @@ get_status(){
     done
   done
 
+}
+
+kill_jobs(){
+
+if [ "$taskname" == "NULL" ] ; then
+  joblist3=`( cat $ongodb | sed "s: :;:g")` 
+else
+  joblist3=`( cat $ongodb | grep "$taskname"  | sed "s: :;:g")`  
+fi
+
+  if [ -z "$joblist3" ] ; then
+    echo "[btask] INFO: kill_jobs:  No active task"
+  else
+
+  for job in $joblist3 ; do
+    declare -a arr
+    arr=$(echo $job | tr ";" "\n")
+    taskName=`(echo ${arr[0]} | awk '{print $1}')`
+    taskname=$taskName
+    get_taskParam 
+    echo "[btask] INFO: Killing Task: "$taskname
+    for name in ${arr[@]} ; do
+      if [ ! "$name" == "$taskName" ] ; then
+        echo "[btask] INFO: Killing SubTask: "$name
+        # Kill job (if still running)
+        res=`(qstat -u $USER localgrid@cream01 | grep $name)` 
+        if [ ! -z "$res" ]; then
+          id=`(echo $res | awk '{print $1}' | awk -F'.' '{print $1}')`
+          qdel $id.cream01 
+        fi
+        # Remove SubTask SandBox
+        rm -rf $taskSdb/Sandbox_$name
+      fi
+    done
+    # Remove Task SandBox
+    rm -rf $taskSdb
+    # Remove Task form ongoing DB 
+    remove_task
+
+
+  done
+fi
+
+} 
+
+
+get_out(){
+
+  if [ "$taskname" == "NULL" ] ; then
+    joblist2=`( cat $ongodb | sed "s: :;:g")`
+  else
+    joblist2=`( cat $ongodb | grep "$taskname" | sed "s: :;:g")`
+  fi
+
+  if [ -z "$joblist2" ] ; then
+    echo "[btask] INFO: No active task"
+  fi
+
+
+  for job in $joblist2 ; do
+    declare -a arr2
+    arr2=$(echo $job | tr ";" "\n")
+    taskName=`(echo ${arr2[0]} | awk '{print $1}')`
+
+    # Check if job is done
+
+     
+    taskname=$taskName  
+    echo " "
+    echo "[btask] INFO: Checking task: "$taskname    
+    get_status
+    if [ $ALLJOBDONE -eq 0 ] ; then
+      echo "[btask] ERROR: Not all jobs are done for task: "$taskname
+      #print_status
+    else
+
+      # Retrieve task parameters 
+  
+      get_taskParam
+      cfg=$taskDir/$taskNAME.cfg 
+      parse_config
+      taskName=`(echo ${arr2[0]} | awk '{print $1}')`
+  
+      # Go to outDir 
+  
+      cd $outDir
+      iJob=0
+  
+      tmpdir=$taskNAME'_'$taskID
+      mkdir $tmpdir
+      cd $tmpdir
+  
+      # Loop over SandBoxes 
+  
+      for name in ${arr2[@]} ; do
+        if [ ! "$name" == "$taskName" ] ; then
+          iJob=`expr $iJob + 1`
+          echo "[btask] INFO: Retrieving task: "$taskName " job: "$iJob 
+  
+          # Unpack tar file
+  
+          tarFile=$taskSdb"/Sandbox_$name/OutputSandbox.tgz"
+          fileList=`(tar tzf $tarFile)`
+          for file in $fileList ; do
+            test=`echo $file | (grep "\.")`
+            if [ ! -z $test ] ; then
+              first=`(echo  $file | awk '{split($0,a,"."); n=0 ; for (i in a) n++ ; nm1=n-1; for (i=1; i<nm1; i++) printf a[i]"." ; print a[nm1]"." }')`
+              middle=$taskNAME'_'$taskID'_'$iJob'.'
+              last=`(echo  $file | awk '{split($0,a,"."); n=0 ; for (i in a) n++ ; print a[n]}')`
+              outfile=$first$middle$last
+            else
+              outfile=$file"."$taskNAME'_'$taskID'_'$iJob
+            fi           
+            tar xzf $tarFile $file 
+            mv $file ../$outfile
+          done
+  
+          # Copy logfiles
+  
+          errFileIn=$taskSdb"/Sandbox_$name/stderr"
+          outFileIn=$taskSdb"/Sandbox_$name/stdout"
+  
+          errFileOut=$taskDir"/stderr_$iJob"
+          outFileOut=$taskDir"/stdout_$iJob"
+  
+          cp $errFileIn $errFileOut
+          cp $outFileIn $outFileOut
+          
+  
+          # Remove SubTask SandBox  
+          rm -rf $taskSdb/Sandbox_$name
+        fi
+      done
+      cd ..
+      rm -rf $tmpdir 
+   
+      # Remove Task SandBox
+      rm -rf $taskSdb
+ 
+      # Remove Task form ongoing DB 
+      remove_task
+  
+    fi
+  done
+  
 }
 
 # ----------------------------  Parsing  Arguments  ----------------------------
@@ -189,8 +373,8 @@ for arg in $* ; do
   case $arg in
     -submit)    submit=1   ; option=$2   ; shift ; shift ;;
     -status)    status=1                         ; shift ;;
-    -get)       getout=1   ; option=$2   ; shift ; shift ;;
-    -kill)      jkill=1    ; option=$2   ; shift ; shift ;;
+    -get)       getout=1                         ; shift ;;
+    -kill)      jkill=1                          ; shift ;;
     -resubmit)  resubmit=1 ; option=$2   ; shift ; shift ;;
     -hadd)      addroot=1  ; taskname=$2 ; shift ; shift ;;
     -task)                   taskname=$2 ; shift ; shift ;;
@@ -225,6 +409,9 @@ if [ $submit -eq 1 ] ; then
 
   cfg=$option 
   parse_config
+  echo "[btask] INFO: The following config will be used to start a task:"
+  print_config
+  mkdir_task
   submit_jobs
   register_task
 
@@ -234,7 +421,7 @@ fi # end [ $submit -eq 1 ]
 
 if [ $jkill  -eq 1 ] ; then
 
-  echo "Not Implemented !"
+  kill_jobs
 
 fi # end [ $jkill  -eq 1 ]
 
@@ -259,7 +446,7 @@ fi # end [ $status -eq 1 ]
 
 if [ $getout -eq 1 ] ; then
 
-  echo "Not Implemented !"
+  get_out
 
 fi # end [ $getout -eq 1 ] 
 
