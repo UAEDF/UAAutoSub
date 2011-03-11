@@ -17,7 +17,9 @@ Manual=$( cat <<SETVAR
           btask -status           : Get status of all jobs
           btask -get              : Retrieve output of all terminated jobs
           btask -kill             : Kill all jobs
-          btask -task <taskname>  : Adding to -status, -get or -hadd 
+                -tag  <tag>       : Replace the random job tag by <tag>
+                                    Apply it together with -submit or -get
+                -task <taskname>  : Adding to -status, -get or -hadd 
                                     restrict action to a single <taskname>
           btask -help             : Print this help message 
 
@@ -54,8 +56,8 @@ if [ ! -f $donedb ];then
   touch $donedb
 fi
 
-sdbdir=/localgrid/$USER
-sdbdir=`( cat $btask_config | grep sandboxdir | awk '{print $2}' )`
+sdbdir=$(eval echo $( cat $btask_config | grep sandboxdir | awk '{print $2}' ))
+
 
 # ---------------------------- Functions ---------------------------------------
 
@@ -97,7 +99,11 @@ parse_config()
 }
 
 mkdir_task(){
-  taskID=`(mktemp -p $workdir -t .XXX | awk -F'.' '{print $2}')`
+  if [ "$tag" == "NULL" ] ; then 
+    taskID=`(mktemp -p $workdir -t .XXX | awk -F'.' '{print $2}')`
+  else
+    taskID=$tag
+  fi 
   taskDir=$workdir/$taskName'_'$taskID
   taskSdb=$sdbdir/$taskName'_'$taskID
   mkdir -p $taskDir
@@ -310,6 +316,13 @@ get_out(){
           iJob=`expr $iJob + 1`
           echo "[btask] INFO: Retrieving task: "$taskName " job: "$iJob 
   
+          if [ "$tag" == "NULL" ] ; then
+            tagID=$taskID
+          else
+            tagID=$tag
+          fi
+
+
           # Unpack tar file
   
           tarFile=$taskSdb"/Sandbox_$name/OutputSandbox.tgz"
@@ -317,12 +330,12 @@ get_out(){
           for file in $fileList ; do
             test=`echo $file | (grep "\.")`
             if [ ! -z $test ] ; then
-              first=`(echo  $file | awk '{split($0,a,"."); n=0 ; for (i in a) n++ ; nm1=n-1; for (i=1; i<nm1; i++) printf a[i]"." ; print a[nm1]"." }')`
-              middle=$taskNAME'_'$taskID'_'$iJob'.'
+              first=`(echo  $file | awk '{split($0,a,"."); n=0 ; for (i in a) n++ ; nm1=n-1; for (i=1; i<nm1; i++) printf a[i]"." ; print a[nm1]"_" }')`
+              middle=$taskNAME'_'$tagID'_'$iJob'.'
               last=`(echo  $file | awk '{split($0,a,"."); n=0 ; for (i in a) n++ ; print a[n]}')`
               outfile=$first$middle$last
             else
-              outfile=$file"."$taskNAME'_'$taskID'_'$iJob
+              outfile=$file"_"$taskNAME'_'$tagID'_'$iJob
             fi           
             tar xzf $tarFile $file 
             mv $file ../$outfile
@@ -366,6 +379,7 @@ getout=0
 jkill=0
 resubmit=0
 addroot=0
+tag="NULL"
 taskname="NULL"
 
 for arg in $* ; do
@@ -378,6 +392,7 @@ for arg in $* ; do
     -resubmit)  resubmit=1 ; option=$2   ; shift ; shift ;;
     -hadd)      addroot=1  ; taskname=$2 ; shift ; shift ;;
     -task)                   taskname=$2 ; shift ; shift ;;
+    -tag)                    tag=$2      ; shift ; shift ;;
     -help)      Usage ;;
     *) ;;
   esac
