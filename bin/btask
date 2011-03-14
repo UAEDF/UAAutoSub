@@ -159,6 +159,10 @@ remove_task(){
 
 print_status(){
   statusVerbose=1
+  echo "#CPU      Free    Total Jobs      Running Waiting ComputingElement    "
+  echo "----------------------------------------------------------------------"
+  lcg-infosites --vo cms ce | grep "cream01.iihe.ac.be"
+  echo "######################################################################"
   get_status
   statusVerbose=0
 }

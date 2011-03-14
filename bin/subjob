@@ -100,7 +100,7 @@ echo "#!/bin/bash"                           >> $subfile
 echo "cd /scratch"                           >> $subfile
 echo "mkdir /scratch/$jobid"                 >> $subfile
 echo "cd /scratch/$jobid"                    >> $subfile   
-echo "mv $InputSandbox ."                    >> $subfile
+echo "cp $InputSandbox ."                    >> $subfile
 echo "tar xzf InputSandbox.tgz"              >> $subfile
 echo "$Exec"                                 >> $subfile
 echo "echo ----------------------- List of File at the end on grid node: ">> $subfile
