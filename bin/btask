@@ -35,6 +35,8 @@ SETVAR
 
 declare -a vJobID
 statusVerbose=0
+sourceroot_command='source /localgrid/xjanssen/root_5.26.00e_iihe_default_dcap/root/bin/thisroot.sh'
+
 
 btask_config=`dirname $0`'/../config/btask.conf'
 workdir=$HOME'/'`( cat $btask_config | grep workdir | awk '{print $2}' )`
@@ -63,12 +65,12 @@ sdbdir=$(eval echo $( cat $btask_config | grep sandboxdir | awk '{print $2}' ))
 
 Usage()
 {
-echo "$Manual" ; exit ;
+  echo "$Manual" ; exit ;
 }
 
 UsageCfg()
 {
-echo "Missing some inputs in cfg file ! "; print_config ; exit ;
+  echo "Missing some inputs in cfg file ! "; print_config ; exit ;
 }
 
 
@@ -81,6 +83,10 @@ print_config()
   echo "outList    = "$outList 
   echo "execBase   = "$execBase
   echo "execMult   = "$execMult
+  if [ $autoNJobs != 0 ];then
+    echo "autoFiles   = $autoFiles"
+    echo "autoNJobs   = $autoNJobs"
+  fi
 }
 
 parse_config()
@@ -94,8 +100,24 @@ parse_config()
   grep outList   $cfg -q && outList=`(  cat $cfg | grep outList   | awk -F"=" '{print $2}'               )` || UsageCfg
   grep execBase  $cfg -q && execBase=`( cat $cfg | grep execBase  | awk -F"=" '{print $2}'               )` || UsageCfg
   grep execMult  $cfg -q && execMult=`(cat $cfg  | grep execMult  | awk -F"=" '{print $2}'               )` || MultipleJobs=0
+  grep autoFiles $cfg -q && autoFiles=`(cat $cfg | grep autoFiles | awk -F"=" '{print $2}'               )` || autoNJobs=0
+  grep autoNJobs $cfg -q && autoNJobs=`(cat $cfg | grep autoNJobs | awk -F"=" '{print $2}'               )` || autoNJobs=0
+  #grep autoTxt   $cfg -q && autoTxt=`(cat $cfg   | grep autoTxt   | awk -F"=" '{print $2}'               )` || autoNJobs=0
+  #grep autoFileManagerArgs $cfg -q && autoFileManagerArgs=`(cat $cfg | grep autoFileManagerArgs | awk -F"=" '{print $2}'               )` || autoNJobs=0
   #print_config
   return 1
+}
+
+check_config()
+{
+
+  #Checking if more than 1 job in execMult when autoNJobs is on
+  if [ $MultipleJobs -gt 0 ] && [ $autoNJobs -gt 0 ];then
+    if [ `echo $execMult|grep ';' -c` -gt 0 ];then
+      echo "[btask] Error : autoFile is on : you must have at most 1 job in execMult ( or you left a \";\"  at the end ? ) . Exiting ..."
+      exit ;
+    fi  
+  fi
 }
 
 mkdir_task(){
@@ -110,14 +132,197 @@ mkdir_task(){
   mkdir -p $taskSdb
 }
 
+make_autofilelist(){
+
+  if [ $autoNJobs -eq 0 ];then
+    return 
+  fi
+
+  nfiles=`ls $autoFiles|wc -l`
+  #echo '[btask] INFO : Number of files to divide :' $nfiles
+  #echo '[btask] INFO : Number of Jobs to do :' $autoNJobs
+  files_per_jobs=`expr $nfiles / $autoNJobs`
+  #echo '[btask] INFO : Files per Jobs : ' $files_per_jobs
+  
+  echo '[btask] INFO : Will create automatically '$autoNJobs'(+1?) jobs with '$files_per_jobs' files per jobs'
+  echo '               Your code needs to take filelist.txt as input , which is automatically created in "inDir" and added to "inList"'
+  echo '               If filelist.txt already exists in "inDir"  , it will first be moved, and then restored at the end of the job'
+
+  if [ -d "$autoFiles" ];then
+    autodir=$autoFiles
+    autolist=`ls -d $autoFiles/*`
+    #echo 'Input is a directory'
+  else
+    autodir=''
+    autolist=`ls -d $autoFiles`
+    #echo 'Input is a list of files'
+  fi
+
+  rm -fr $taskDir/filelist_[0-9].txt
+
+  nfile_injob=0
+  ijob=0
+  for autofile in $autolist;do
+    if [ `echo $autofile|grep "pnfs" -c` -gt 0 ];then
+      if [ `echo $autofile|grep -v 'dcap:///' -c` -gt 0 ];then
+        autofile="dcap://$autofile"
+      fi
+    fi
+  
+  
+    let nfile_injob=$nfile_injob+1
+  
+    if [ $nfile_injob -gt $files_per_jobs ];then
+      nfile_injob=1
+      let ijob=$ijob+1
+    fi
+  
+    #creating filelist i
+    if [ ! -f $taskDir/filelist_$ijob.txt ];then
+      cp /dev/null $taskDir/filelist_$ijob.txt
+    fi
+  
+    echo $autofile >> $taskDir/filelist_$ijob.txt
+  done
+  
+  #cd $autoCurrentDir
+ 
+  if [ $MultipleJobs -eq 0 ] ;then
+    execMult='echo '
+    MultipleJobs=1
+  fi
+  execMultBase=$execMult
+  for iExec in `seq 1 $ijob`;do
+    execMult="$execMult ; $execMultBase"
+  done
+  
+  
+}
+
+make_hadd_job(){
+
+  if [ "$taskname" == "NULL" ] ; then
+    echo '[btask] ERROR : Please specify a task name using -task <taskname>'
+    exit
+  else
+    job=`( cat $ongodb | grep "$taskname" | sed "s: :;:g")`
+  fi
+
+  if [ -z "$job" ] ; then
+    echo "[btask] ERROR : Task $taskname not found."
+    exit
+  fi
+
+
+  declare -a arr2
+  arr2=$(echo $job | tr ";" "\n")
+  taskName=`(echo ${arr2[0]} | awk '{print $1}')`
+
+  # Check if job is done
+  taskname=$taskName  
+  echo " "
+  echo "[btask] INFO: Checking task: "$taskname    
+  get_status
+  if [ $ALLJOBDONE -eq 0 ] ; then
+    echo "[btask] ERROR: Not all jobs are done for task: "$taskname
+    exit
+  fi
+  
+  # Retrieve task parameters 
+  
+  get_taskParam
+  cfg=$taskDir/$taskNAME.cfg 
+  parse_config
+  taskName=`(echo ${arr2[0]} | awk '{print $1}')`
+  
+  echo '[btask] INFO: Retrieving task: '$taskName 
+  taskId=`echo $taskName"_hadd"|sed "s:#:_:"`
+  echo $taskId
+  
+  declare -a sandboxes
+  declare -a outputfiles
+  
+  
+  
+  tarFile="OutputSandbox.tgz"
+     
+      
+  # Loop over SandBoxes and untar
+  for name in ${arr2[@]} ; do
+    if [ ! "$name" == "$taskName" ] ; then
+
+      #add to list of sandboxes
+      sandboxes=`echo $sandboxes $taskSdb"/Sandbox_$name/"`
+      #echo $sandboxes
+      
+      # Unpack tar file
+      cd $taskSdb"/Sandbox_$name/"
+      tar vxzf $tarFile
+    fi
+  done
+  
+  #making list of output files
+  outputfiles=''
+  fileList=`(tar vxzf $taskSdb/Sandbox_$name/$tarFile)`
+  for file in $fileList ; do
+    if [ `file $file|grep 'ROOT' -c` -eq 1 ];then
+      outputfiles=`echo $outputfiles $file`
+    fi
+  done
+  
+  if [ ${#outputfiles[@]} -eq 0 ];then
+    echo "[btask] Warning : no root ouput files were created by the job. Nothing to hadd ..."
+    exit 
+  fi
+  
+  #making path to execute
+  execmult='ff'
+  for iOutputFile in ${outputfiles[@]};do
+    #hadd_command='hadd -f '${iOutputFile%.root}'_'$taskId'.root'
+    hadd_command='hadd -f '$iOutputFile
+    echo $hadd_command
+  
+    for iSandBox in ${sandboxes[@]};do
+      hadd_command=`echo $hadd_command $iSandBox/$iOutputFile`    
+    done
+    
+    execmult=`echo $execmult" ; "$hadd_command`
+  done
+
+
+  #making temp conf file
+  cp /dev/null conf_$taskId.txt
+  echo 'taskName = '`echo $taskName|sed "s:#.*::"`	>> conf_$taskId.txt
+  echo 'inDir    = '`pwd`				>> conf_$taskId.txt
+  echo 'inList   = 'conf_$taskId.txt			>> conf_$taskId.txt
+  echo 'outDir   = '$outDir				>> conf_$taskId.txt
+  echo 'outList  = "*.root"'				>> conf_$taskId.txt
+  echo 'execBase = '$sourceroot_command			>> conf_$taskId.txt
+  echo 'execMult = '`echo $execmult|sed "s#ff ;##"`	>> conf_$taskId.txt
+  
+  btask -submit conf_$taskId.txt -tag `echo $taskName|sed "s:.*#::"`"_hadd"
+  
+}
+
+
+
+
 submit_jobs(){
 
-  SUBMIT="subjob --sdbdir $taskSdb --inDir $inDir --inList $inList --outList $outList" 
+  #saving existing filelist, to restore after jobs are launched
+  if [ -f $inDir/filelist.txt ] && [ $autoNJobs -ne 0 ];then
+    #echo "Moving existing $inDir/filelist.txt in /tmp/filelist_$taskID"
+    mv $inDir/filelist.txt /tmp/filelist_$taskID
+  fi
+
+  SUBMIT="subjob --sdbdir $taskSdb --inDir $inDir --outList $outList" 
   iJob=0
 
   if [ $MultipleJobs -eq 0 ] ; then 
     iJob=`expr $iJob + 1`
-    JOB=$execBase' --jobid '$taskID'_'$iJob
+    echo $execBase
+    #JOB=`echo $execBase' --jobid '$taskID'_'$iJob '--inList '$inList`
+    JOB=`echo '--jobid '$taskID'_'$iJob' --exec '$execBase '--inList' $inList`
     JobID=`($SUBMIT $JOB | grep JobID | awk -F":" '{print $2}' | sed "s: ::g")`
     vJobID[$[${#vJobID[@]}+1]]=$JobID
 
@@ -126,22 +331,30 @@ submit_jobs(){
     SaveIFS=$IFS
     IFS=';' read -ra JOBS <<< "$execMult"
     for j in "${JOBS[@]}"; do
+      if [ $autoNJobs -gt 0 ];then
+        cp $taskDir/filelist_$iJob.txt $inDir/filelist.txt
+	inList=`echo "$inList filelist.txt"`
+      fi
       iJob=`expr $iJob + 1`
-      JOB=`(echo "--jobid "$taskID"_"$iJob" --exec "$execBase " ; " $j)`
+      JOB=`echo '--jobid '$taskID'_'$iJob' --exec '$execBase ' ; ' $j '--inList' $inList`
       JobID=`($SUBMIT $JOB | grep JobID | awk -F":" '{print $2}' | sed "s: ::g")`
       vJobID[$[${#vJobID[@]}+1]]=$JobID
     done
     IFS=$SaveIFS
 
   fi
-
+  
+  #restoring previously saved filelist.txt
+  if [ -f /tmp/filelist_$taskID ];then
+    mv /tmp/filelist_$taskID $inDir/filelist.txt
+  fi
 }
 
 register_task(){
   cp /dev/null $taskDir/$taskName.cfg
   print_config >> $taskDir/$taskName.cfg
   echo $taskName'#'$taskID' '${vJobID[@]} >> $ongodb
-  echo "[btask] INFO: The following task ha been started: "$taskName"#"$taskID
+  echo "[btask] INFO: The following task has been started: "$taskName"#"$taskID
   echo "[btask] INFO: composed of subtask : "${vJobID[@]}
 }
 
@@ -304,6 +517,10 @@ get_out(){
       parse_config
       taskName=`(echo ${arr2[0]} | awk '{print $1}')`
   
+      echo '[btask] INFO: Retrieving task: '$taskName 
+      echo '		  log files are in '
+      echo '		       '$taskDir
+  
       # Go to outDir 
   
       cd $outDir
@@ -328,7 +545,7 @@ get_out(){
 
 
           # Unpack tar file
-  
+	  echo '              output files'
           tarFile=$taskSdb"/Sandbox_$name/OutputSandbox.tgz"
           fileList=`(tar tzf $tarFile)`
           for file in $fileList ; do
@@ -343,6 +560,7 @@ get_out(){
             fi           
             tar xzf $tarFile $file 
             mv $file ../$outfile
+	    echo '                 '"$outDir/$outfile"
           done
   
           # Copy logfiles
@@ -394,7 +612,7 @@ for arg in $* ; do
     -get)       getout=1                         ; shift ;;
     -kill)      jkill=1                          ; shift ;;
     -resubmit)  resubmit=1 ; option=$2   ; shift ; shift ;;
-    -hadd)      addroot=1  ; taskname=$2 ; shift ; shift ;;
+    -hadd)      addroot=1  			 ; shift ;;
     -task)                   taskname=$2 ; shift ; shift ;;
     -tag)                    tag=$2      ; shift ; shift ;;
     -help)      Usage ;;
@@ -430,7 +648,9 @@ if [ $submit -eq 1 ] ; then
   parse_config
   echo "[btask] INFO: The following config will be used to start a task:"
   print_config
+  check_config
   mkdir_task
+  make_autofilelist
   submit_jobs
   register_task
 
@@ -473,7 +693,7 @@ fi # end [ $getout -eq 1 ]
 
 if [ $addroot -eq 1 ] ; then
 
-  echo "Not Implemented !"
+  make_hadd_job
 
 fi # end [ $addroot -eq 1 ]
 
