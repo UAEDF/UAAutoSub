@@ -645,6 +645,66 @@ get_out(){
   
 }
 
+resubmit(){
+
+
+  if [ "$taskname" == "NULL" ] ; then
+    echo '[btask] ERROR : Please specify a task name using -task <taskname>'
+    exit
+  else
+    job=`( cat $ongodb | grep "$taskname" | sed "s: :;:g")`
+  fi
+
+  if [ -z "$job" ] ; then
+    echo "[btask] ERROR : Task $taskname not found."
+    exit
+  fi
+
+
+  declare -a arr2
+  arr2=$(echo $job | tr ";" "\n")
+  taskName=`(echo ${arr2[0]} | awk '{print $1}')`
+
+  # Check if job is done
+  taskname=$taskName  
+  echo " "
+  echo "[btask] INFO: Checking task: "$taskname    
+  get_status
+  if [ $ALLJOBDONE -eq 0 ] ; then
+    echo "[btask] ERROR: Not all jobs are done for task: "$taskname
+    exit
+  fi
+  
+  # Retrieve task parameters 
+  
+  get_taskParam
+  cfg=$taskDir/$taskNAME.cfg 
+  parse_config
+  taskName=`(echo ${arr2[0]} | awk '{print $1}')`
+  
+  #echo '[btask] INFO: Retrieving task: '$taskName 
+  
+  tarFile="OutputSandbox.tgz"
+  
+  # Loop over SandBoxes and untar
+  for name in ${arr2[@]} ; do
+    if [ ! "$name" == "$taskName" ] ; then
+
+      cd $taskSdb"/Sandbox_$name/"
+      
+      #checking if $tarFile is present
+      if [ ! -f $tarFile ];then
+        echo '[btask] WARNING : No output files were present for job '$name
+        echo '        ==> resubmitting the job '
+	qsub -N $name -q localgrid@cream01 -o `pwd`/stdout_retry -e `pwd`/stderr_retry qsub.sh > /dev/null
+      fi
+
+    fi
+  done
+
+}
+
+
 # ----------------------------  Parsing  Arguments  ----------------------------
 
 submit=0
@@ -663,7 +723,7 @@ for arg in $* ; do
     -status)    status=1                         ; shift ;;
     -get)       getout=1                         ; shift ;;
     -kill)      jkill=1                          ; shift ;;
-    -resubmit)  resubmit=1 ; option=$2   ; shift ; shift ;;
+    -resubmit)  resubmit=1 			 ; shift ;;
     -hadd)      addroot=1  			 ; shift ;;
     -task)                   taskname=$2 ; shift ; shift ;;
     -tag)                    tag=$2      ; shift ; shift ;;
@@ -720,7 +780,7 @@ fi # end [ $jkill  -eq 1 ]
 
 if [ $resubmit -eq 1 ] ; then
 
-  echo "Not Implemented !"
+  resubmit
 
 fi # end [ $resubmit -eq 1 ] 
 
