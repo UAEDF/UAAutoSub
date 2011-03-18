@@ -143,6 +143,10 @@ make_autofilelist(){
   #echo '[btask] INFO : Number of Jobs to do :' $autoNJobs
   files_per_jobs=`expr $nfiles / $autoNJobs`
   #echo '[btask] INFO : Files per Jobs : ' $files_per_jobs
+  if [ $autoNJobs -gt $nfiles ];then
+    autoNJobs=$nfiles
+  fi
+  
   
   echo '[btask] INFO : Will create automatically '$autoNJobs'(+1?) jobs with '$files_per_jobs' files per jobs'
   echo '               Your code needs to take filelist.txt as input , which is automatically created in "inDir" and added to "inList"'
@@ -237,29 +241,46 @@ make_hadd_job(){
   
   echo '[btask] INFO: Retrieving task: '$taskName 
   taskId=`echo $taskName"_hadd"|sed "s:#:_:"`
-  echo $taskId
   
   declare -a sandboxes
   declare -a outputfiles
   
-  
-  
   tarFile="OutputSandbox.tgz"
-     
-      
+  
+  
   # Loop over SandBoxes and untar
+  missingoutputs=0
   for name in ${arr2[@]} ; do
     if [ ! "$name" == "$taskName" ] ; then
+
+      cd $taskSdb"/Sandbox_$name/"
+      
+      #checking if $tarFile is present
+      if [ ! -f $tarFile ];then
+        echo '[btask] WARNING : No output files were present for job '$name
+	missingoutputs=1
+	continue
+      fi
 
       #add to list of sandboxes
       sandboxes=`echo $sandboxes $taskSdb"/Sandbox_$name/"`
       #echo $sandboxes
       
       # Unpack tar file
-      cd $taskSdb"/Sandbox_$name/"
-      tar vxzf $tarFile
+      tar xzf $tarFile
     fi
   done
+  
+  if [ $missingoutputs -gt 0 ];then
+    echo '[btask] INFO : You should try to resubmit the task with btask -resubmit -task '$taskName
+    read -p "        ==> Do you want to continue with the hadd job ? [y/n] [default=y]  " a 
+    case $a in
+      n )
+        exit
+      ;;
+    esac
+        
+  fi
   
   #making list of output files
   outputfiles=''
@@ -275,15 +296,32 @@ make_hadd_job(){
     exit 
   fi
   
+  echo "[btask] INFO : Will run ${#outputfiles[@]} hadd subjobs on the ${#outputfiles[@]} following output files :"
+  echo "               ${outputfiles[@]}"
+  
+  
   #making path to execute
   execmult='ff'
   for iOutputFile in ${outputfiles[@]};do
     #hadd_command='hadd -f '${iOutputFile%.root}'_'$taskId'.root'
     hadd_command='hadd -f '$iOutputFile
-    echo $hadd_command
   
     for iSandBox in ${sandboxes[@]};do
-      hadd_command=`echo $hadd_command $iSandBox/$iOutputFile`    
+      if [ ! -f $iSandBox/$iOutputFile ];then
+        echo '[btask] WARNING : subjob managed to retrieve output, but problem arrised when untaring '$iOutputFile' from '$iSandBox
+	echo '                  Will not run hadd on this subjob'
+        read -p "        ==> Do you want to continue with the hadd job ? [y/n] [default=y]  " a 
+        case $a in
+          n )
+            exit
+          ;;
+        esac
+	continue
+      fi
+      
+      
+      hadd_command=`echo $hadd_command $iSandBox/$iOutputFile`   
+       
     done
     
     execmult=`echo $execmult" ; "$hadd_command`
@@ -299,6 +337,10 @@ make_hadd_job(){
   echo 'outList  = "*.root"'				>> conf_$taskId.txt
   echo 'execBase = '$sourceroot_command			>> conf_$taskId.txt
   echo 'execMult = '`echo $execmult|sed "s#ff ;##"`	>> conf_$taskId.txt
+  
+  echo -e "\n[btask] INFO : Launching hadd job $taskId"
+  echo -e "==========================================================================================\n"
+  #echo ""
   
   btask -submit conf_$taskId.txt -tag `echo $taskName|sed "s:.*#::"`"_hadd"
   
@@ -518,8 +560,7 @@ get_out(){
       taskName=`(echo ${arr2[0]} | awk '{print $1}')`
   
       echo '[btask] INFO: Retrieving task: '$taskName 
-      echo '		  log files are in '
-      echo '		       '$taskDir
+      echo '	    ==> log files are in '$taskDir
   
       # Go to outDir 
   
@@ -544,25 +585,36 @@ get_out(){
           fi
 
 
-          # Unpack tar file
-	  echo '              output files'
+	  
           tarFile=$taskSdb"/Sandbox_$name/OutputSandbox.tgz"
-          fileList=`(tar tzf $tarFile)`
-          for file in $fileList ; do
-            test=`echo $file | (grep "\.")`
-            if [ ! -z $test ] ; then
-              first=`(echo  $file | awk '{split($0,a,"."); n=0 ; for (i in a) n++ ; nm1=n-1; for (i=1; i<nm1; i++) printf a[i]"." ; print a[nm1]"_" }')`
-              middle=$taskNAME'_'$tagID'_'$iJob'.'
-              last=`(echo  $file | awk '{split($0,a,"."); n=0 ; for (i in a) n++ ; print a[n]}')`
-              outfile=$first$middle$last
-            else
-              outfile=$file"_"$taskNAME'_'$tagID'_'$iJob
-            fi           
-            tar xzf $tarFile $file 
-            mv $file ../$outfile
-	    echo '                 '"$outDir/$outfile"
-          done
-  
+	  
+	  #checking if $tarFile is present
+          if [ ! -f $tarFile ];then
+            echo '[btask] WARNING : No output files were present for job '$name
+	    continue
+          else
+	    
+            # Unpack tar file
+	    echo '	    ==> output files :'
+            fileList=`(tar tzf $tarFile)`
+            for file in $fileList ; do
+              test=`echo $file | (grep "\.")`
+              if [ ! -z $test ] ; then
+                first=`(echo  $file | awk '{split($0,a,"."); n=0 ; for (i in a) n++ ; nm1=n-1; for (i=1; i<nm1; i++) printf a[i]"." ; print a[nm1]"_" }')`
+                middle=$taskNAME'_'$tagID'_'$iJob'.'
+                last=`(echo  $file | awk '{split($0,a,"."); n=0 ; for (i in a) n++ ; print a[n]}')`
+                outfile=$first$middle$last
+              else
+                outfile=$file"_"$taskNAME'_'$tagID'_'$iJob
+              fi           
+              tar xzf $tarFile $file 
+              mv $file ../$outfile
+	      echo '                 '"$outDir/$outfile"
+            done
+          fi
+	  
+	  
+	  
           # Copy logfiles
   
           errFileIn=$taskSdb"/Sandbox_$name/stderr"
