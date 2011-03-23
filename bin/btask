@@ -138,7 +138,26 @@ make_autofilelist(){
     return 
   fi
 
-  nfiles=`ls $autoFiles|wc -l`
+  
+  if [ `echo $autoFiles|grep ".txt" -c` -eq 1 ];then
+    autodir=''
+    autolist=`cat $inDir$(echo $autoFiles|sed "s# ##")`
+    echo '[btask] INFO : Input is a txt file'
+  else
+    
+    if [ -d `echo $autoFiles|awk '{print $1}'` ];then
+      autodir=$autoFiles
+      autolist=`ls -d $autoFiles/*`
+      echo '[btask] INFO : Input is a directory'
+    else
+      autodir=''
+      autolist=`ls -d $autoFiles`
+      echo '[btask] INFO : Input is a list of files'
+    fi
+  fi
+  rm -fr $taskDir/filelist_[0-9].txt
+  
+  nfiles=`echo $autolist|sed "s# #\n#g"|wc -l`
   #echo '[btask] INFO : Number of files to divide :' $nfiles
   #echo '[btask] INFO : Number of Jobs to do :' $autoNJobs
   files_per_jobs=`expr $nfiles / $autoNJobs`
@@ -151,18 +170,8 @@ make_autofilelist(){
   echo '[btask] INFO : Will create automatically '$autoNJobs'(+1?) jobs with '$files_per_jobs' files per jobs'
   echo '               Your code needs to take filelist.txt as input , which is automatically created in "inDir" and added to "inList"'
   echo '               If filelist.txt already exists in "inDir"  , it will first be moved, and then restored at the end of the job'
-
-  if [ -d "$autoFiles" ];then
-    autodir=$autoFiles
-    autolist=`ls -d $autoFiles/*`
-    #echo 'Input is a directory'
-  else
-    autodir=''
-    autolist=`ls -d $autoFiles`
-    #echo 'Input is a list of files'
-  fi
-
-  rm -fr $taskDir/filelist_[0-9].txt
+  
+  
 
   nfile_injob=0
   ijob=0
@@ -172,7 +181,6 @@ make_autofilelist(){
         autofile="dcap://$autofile"
       fi
     fi
-  
   
     let nfile_injob=$nfile_injob+1
   
@@ -342,7 +350,7 @@ make_hadd_job(){
   echo -e "==========================================================================================\n"
   #echo ""
   
-  btask -submit conf_$taskId.txt -tag `echo $taskName|sed "s:.*#::"`"_hadd"
+  btask -submit conf_$taskId.txt -tag "hadd_"`echo $taskName|sed "s:.*#::"`
   
 }
 
@@ -571,6 +579,14 @@ get_out(){
       mkdir $tmpdir
       cd $tmpdir
   
+      clean=1
+      read -p "[btask] INFO: Do you want to clean this task ? [y/n] [default=y]  " a 
+      case $a in
+        n )
+          clean=0
+        ;;
+      esac
+  
       # Loop over SandBoxes 
   
       for name in ${arr2[@]} ; do
@@ -627,18 +643,24 @@ get_out(){
           cp $outFileIn $outFileOut
           
   
-          # Remove SubTask SandBox  
-          rm -rf $taskSdb/Sandbox_$name
+          # Remove SubTask SandBox
+	  if [ $clean -eq 1 ];then
+            rm -rf $taskSdb/Sandbox_$name
+	  fi
+	  
         fi
       done
       cd ..
       rm -rf $tmpdir 
-   
-      # Remove Task SandBox
-      rm -rf $taskSdb
+      
+      
+      if [ $clean -eq 1 ];then
+        # Remove Task SandBox
+        rm -rf $taskSdb
  
-      # Remove Task form ongoing DB 
-      remove_task
+        # Remove Task form ongoing DB 
+        remove_task
+      fi
   
     fi
   done
