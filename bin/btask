@@ -157,7 +157,6 @@ make_autofilelist(){
   fi
   rm -fr $taskDir/filelist_[0-9].txt
 
-  exit 
   nfiles=`echo $autolist|sed "s# #\n#g"|wc -l`
   #echo '[btask] INFO : Number of files to divide :' $nfiles
   #echo '[btask] INFO : Number of Jobs to do :' $autoNJobs
