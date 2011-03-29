@@ -141,7 +141,7 @@ make_autofilelist(){
   
   if [ `echo $autoFiles|grep ".txt" -c` -eq 1 ];then
     autodir=''
-    autolist=`cat $inDir$(echo $autoFiles|sed "s# ##")`
+    autolist=`cat $inDir'/'$(echo $autoFiles|sed "s# ##")`
     echo '[btask] INFO : Input is a txt file'
   else
     
@@ -156,7 +156,8 @@ make_autofilelist(){
     fi
   fi
   rm -fr $taskDir/filelist_[0-9].txt
-  
+
+  exit 
   nfiles=`echo $autolist|sed "s# #\n#g"|wc -l`
   #echo '[btask] INFO : Number of files to divide :' $nfiles
   #echo '[btask] INFO : Number of Jobs to do :' $autoNJobs
