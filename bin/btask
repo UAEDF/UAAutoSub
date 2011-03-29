@@ -310,10 +310,23 @@ make_hadd_job(){
   
   #making path to execute
   execmult='ff'
+  haddOutFiles=''
+  ihaddOutFiles=0
+  makeDIR=''
+  imakeDIR=0
   for iOutputFile in ${outputfiles[@]};do
     #hadd_command='hadd -f '${iOutputFile%.root}'_'$taskId'.root'
     hadd_command='hadd -f '$iOutputFile
-  
+    if [ $ihaddOutFiles == 0 ] ; then
+      haddOutFiles=$iOutputFile
+      ihaddOutFiles=1
+    else
+      haddOutFiles=$haddOutFiles' , '$iOutputFile
+    fi  
+    if [ ! -z "$(echo $iOutputFile | sed -n 's:\([/]\):\1:p')" ]; then
+      DIR=`(echo $iOutputFile | awk '{split($0,a,"/") ; n=0 ; for (i in a) n++ ; for (i=1; i<n; i++) printf a[i]"/" }')`
+      makeDIR=$makeDIR' ; mkdir -p '$DIR
+    fi
     for iSandBox in ${sandboxes[@]};do
       if [ ! -f $iSandBox/$iOutputFile ];then
         echo '[btask] WARNING : subjob managed to retrieve output, but problem arrised when untaring '$iOutputFile' from '$iSandBox
@@ -342,14 +355,15 @@ make_hadd_job(){
   echo 'inDir    = '`pwd`				>> conf_$taskId.txt
   echo 'inList   = 'conf_$taskId.txt			>> conf_$taskId.txt
   echo 'outDir   = '$outDir				>> conf_$taskId.txt
-  echo 'outList  = "*.root"'				>> conf_$taskId.txt
-  echo 'execBase = '$sourceroot_command			>> conf_$taskId.txt
+# echo 'outList  = "*.root"'				>> conf_$taskId.txt
+  echo 'outList  = '$haddOutFiles                       >> conf_$taskId.txt
+  echo 'execBase = '$sourceroot_command' '$makeDIR	>> conf_$taskId.txt
   echo 'execMult = '`echo $execmult|sed "s#ff ;##"`	>> conf_$taskId.txt
   
   echo -e "\n[btask] INFO : Launching hadd job $taskId"
   echo -e "==========================================================================================\n"
   #echo ""
-  
+  pwd 
   btask -submit conf_$taskId.txt -tag "hadd_"`echo $taskName|sed "s:.*#::"`
   
 }
@@ -467,7 +481,7 @@ get_status(){
       if [ ! "$name" == "$taskName" ] ; then
         get_taskParam
         testFile=$taskSdb"/Sandbox_$name/OutputSandbox.tgz"
-        res=`(qstat -u $USER localgrid@cream01 | grep $name)` 
+        res=`(qstat -u $USER localgrid@cream01 | grep "$name ")` 
         if [ ! -z "$res" ]; then
           if [ $statusVerbose -eq 1 ] ; then 
             echo "$res"
