@@ -83,9 +83,10 @@ print_config()
   echo "outList    = "$outList 
   echo "execBase   = "$execBase
   echo "execMult   = "$execMult
-  if [ $autoNJobs != 0 ];then
-    echo "autoFiles   = $autoFiles"
-    echo "autoNJobs   = $autoNJobs"
+  if [ $autoON != 0 ];then
+    echo "autoFiles           = $autoFiles"
+    echo "autoNJobs           = $autoNJobs"
+    echo "autoNfiles_per_jobs = $autoNfiles_per_jobs"
   fi
 }
 
@@ -100,19 +101,39 @@ parse_config()
   grep outList   $cfg -q && outList=`(  cat $cfg | grep outList   | awk -F"=" '{print $2}'               )` || UsageCfg
   grep execBase  $cfg -q && execBase=`( cat $cfg | grep execBase  | awk -F"=" '{print $2}'               )` || UsageCfg
   grep execMult  $cfg -q && execMult=`(cat $cfg  | grep execMult  | awk -F"=" '{print $2}'               )` || MultipleJobs=0
-  grep autoFiles $cfg -q && autoFiles=`(cat $cfg | grep autoFiles | awk -F"=" '{print $2}'               )` || autoNJobs=0
+  
+  #auto Variables
+  grep autoFiles $cfg -q && autoFiles=`(cat $cfg | grep autoFiles | awk -F"=" '{print $2}'               )` || autoFiles=0
   grep autoNJobs $cfg -q && autoNJobs=`(cat $cfg | grep autoNJobs | awk -F"=" '{print $2}'               )` || autoNJobs=0
-  #grep autoTxt   $cfg -q && autoTxt=`(cat $cfg   | grep autoTxt   | awk -F"=" '{print $2}'               )` || autoNJobs=0
+  grep autoNfiles_per_jobs $cfg -q && autoNfiles_per_jobs=`(cat $cfg | grep autoNfiles_per_jobs | awk -F"=" '{print $2}' )` || autoNfiles_per_jobs=0
   #grep autoFileManagerArgs $cfg -q && autoFileManagerArgs=`(cat $cfg | grep autoFileManagerArgs | awk -F"=" '{print $2}'               )` || autoNJobs=0
   #print_config
+  
+  
   return 1
 }
 
 check_config()
 {
+  autoON=0
+  if [ "$autoFiles" != "0" ];then
+    autoON=1
+  fi
+  
+  if [ $autoNJobs -ne 0 ] && [ $autoNfiles_per_jobs -ne 0 ];then
+    echo "[btask] ERROR : You need to specify only one of autoNJobs & autoNfiles_per_jobs."
+    exit
+  fi
+  
+  if [ $autoNJobs -ne 0 ] || [ $autoNfiles_per_jobs -ne 0 ];then
+    if [ $autoON -eq 0 ];then
+      echo "[btask] ERROR : You need to specify autoFiles if you want to parallelize your jobs."
+      exit
+    fi
+  fi
 
-  #Checking if more than 1 job in execMult when autoNJobs is on
-  if [ $MultipleJobs -gt 0 ] && [ $autoNJobs -gt 0 ];then
+  #Checking if more than 1 job in execMult when autoON is on
+  if [ $MultipleJobs -gt 0 ] && [ $autoON -gt 0 ];then
     if [ `echo $execMult|grep ';' -c` -gt 0 ];then
       echo "[btask] Error : autoFile is on : you must have at most 1 job in execMult ( or you left a \";\"  at the end ? ) . Exiting ..."
       exit ;
@@ -134,7 +155,7 @@ mkdir_task(){
 
 make_autofilelist(){
 
-  if [ $autoNJobs -eq 0 ];then
+  if [ $autoON -eq 0 ];then
     return 
   fi
 
@@ -254,6 +275,7 @@ make_hadd_job(){
   declare -a outputfiles
   
   tarFile="OutputSandbox.tgz"
+  pnfsdir=/pnfs/iihe/cms/store/user/$USER/
   
   
   # Loop over SandBoxes and untar
@@ -264,7 +286,7 @@ make_hadd_job(){
       cd $taskSdb"/Sandbox_$name/"
       
       #checking if $tarFile is present
-      if [ ! -f $tarFile ];then
+      if [[ ! -f $tarFile && $pnfs -eq 0 ]] || [[ `ls $pnfsdir$taskSdb"/Sandbox_$name/"|wc -l` -eq 0 && $pnfs -gt 0 ]] ;then
         echo '[btask] WARNING : No output files were present for job '$name
 	missingoutputs=1
 	continue
@@ -275,7 +297,9 @@ make_hadd_job(){
       #echo $sandboxes
       
       # Unpack tar file
-      tar xzf $tarFile
+      if [ $pnfs -eq 0 ] ;then
+        tar xzf $tarFile
+      fi
     fi
   done
   
@@ -292,9 +316,16 @@ make_hadd_job(){
   
   #making list of output files
   outputfiles=''
-  fileList=`(tar vxzf $taskSdb/Sandbox_$name/$tarFile)`
+  if [ $pnfs -eq 0 ] ;then
+    fileList=`(tar vxzf $taskSdb/Sandbox_$name/$tarFile)`
+  else
+    echo "fff  " $pnfsdir$taskSdb/Sandbox_$name/
+    fileList=`ls $pnfsdir$taskSdb/Sandbox_$name/`
+  fi
+  
   for file in $fileList ; do
-    if [ `file $file|grep 'ROOT' -c` -eq 1 ];then
+    #if [ `file $file|grep 'ROOT' -c` -eq 1 ];then  #can't use it on pnfs ...
+    if [ `echo $file|grep '.root' -c` -eq 1 ];then
       outputfiles=`echo $outputfiles $file`
     fi
   done
@@ -317,6 +348,10 @@ make_hadd_job(){
   for iOutputFile in ${outputfiles[@]};do
     #hadd_command='hadd -f '${iOutputFile%.root}'_'$taskId'.root'
     hadd_command='hadd -f '$iOutputFile
+    echo $hadd_command
+    
+    #################### FIXME
+    #  Xavier Stuff ==> Surely not needed when -pnfs
     if [ $ihaddOutFiles == 0 ] ; then
       haddOutFiles=$iOutputFile
       ihaddOutFiles=1
@@ -327,8 +362,10 @@ make_hadd_job(){
       DIR=`(echo $iOutputFile | awk '{split($0,a,"/") ; n=0 ; for (i in a) n++ ; for (i=1; i<n; i++) printf a[i]"/" }')`
       makeDIR=$makeDIR' ; mkdir -p '$DIR
     fi
+    ####################
+    
     for iSandBox in ${sandboxes[@]};do
-      if [ ! -f $iSandBox/$iOutputFile ];then
+      if [[ ! -f $iSandBox/$iOutputFile && $pnfs -eq 0 ]] || [[ ! -f $pnfsdir$iSandBox/$iOutputFile && $pnfs -gt 0 ]] ;then
         echo '[btask] WARNING : subjob managed to retrieve output, but problem arrised when untaring '$iOutputFile' from '$iSandBox
 	echo '                  Will not run hadd on this subjob'
         read -p "        ==> Do you want to continue with the hadd job ? [y/n] [default=y]  " a 
@@ -340,8 +377,11 @@ make_hadd_job(){
 	continue
       fi
       
-      
-      hadd_command=`echo $hadd_command $iSandBox/$iOutputFile`   
+      if [ $pnfs -eq 0 ] ;then
+        hadd_command=`echo $hadd_command $iSandBox/$iOutputFile`   
+      else
+        hadd_command=`echo $hadd_command dcap://$pnfsdir$iSandBox/$iOutputFile`
+      fi
        
     done
     
@@ -362,10 +402,9 @@ make_hadd_job(){
   
   echo -e "\n[btask] INFO : Launching hadd job $taskId"
   echo -e "==========================================================================================\n"
-  #echo ""
-  pwd 
-  btask -submit conf_$taskId.txt -tag "hadd_"`echo $taskName|sed "s:.*#::"`
   
+  btask -submit conf_$taskId.txt -tag "hadd_"`echo $taskName|sed "s:.*#::"`
+  #cat conf_$taskId.txt
 }
 
 
@@ -380,6 +419,12 @@ submit_jobs(){
   fi
 
   SUBMIT="subjob --sdbdir $taskSdb --inDir $inDir --outList $outList" 
+  
+  if [ $pnfs -gt 0 ];then
+    SUBMIT=`echo "$SUBMIT --pnfs"`
+  fi
+  
+  
   iJob=0
 
   if [ $MultipleJobs -eq 0 ] ; then 
@@ -619,14 +664,20 @@ get_out(){
           tarFile=$taskSdb"/Sandbox_$name/OutputSandbox.tgz"
 	  
 	  #checking if $tarFile is present
-          if [ ! -f $tarFile ];then
+          if [ ! -f $tarFile ] && [ $pnfs -eq 0 ];then
             echo '[btask] WARNING : No output files were present for job '$name
 	    continue
           else
 	    
             # Unpack tar file
 	    echo '	    ==> output files :'
-            fileList=`(tar tzf $tarFile)`
+	    
+	    if [ $pnfs -eq 0 ];then
+	      fileList=`(tar tzf $tarFile)`
+	    else
+	      fileList=`ls /pnfs/iihe/cms/store/user/$USER/$taskSdb/Sandbox_$name/`
+	    fi
+	    
             for file in $fileList ; do
               test=`echo $file | (grep "\.")`
               if [ ! -z $test ] ; then
@@ -636,9 +687,15 @@ get_out(){
                 outfile=$first$middle$last
               else
                 outfile=$file"_"$taskNAME'_'$tagID'_'$iJob
-              fi           
-              tar xzf $tarFile $file 
-              mv $file ../$outfile
+              fi
+	      
+	      if [ $pnfs -eq 0 ];then
+	        tar xzf $tarFile $file 
+                mv $file ../$outfile
+	      else
+	        dccp /pnfs/iihe/cms/store/user/$USER/$taskSdb/Sandbox_$name/$file ../$outfile &> /dev/null
+	      fi
+	                 
 	      echo '                 '"$outDir/$outfile"
             done
           fi
@@ -671,8 +728,11 @@ get_out(){
       if [ $clean -eq 1 ];then
         # Remove Task SandBox
         rm -rf $taskSdb
- 
-        # Remove Task form ongoing DB 
+        if [ $pnfs -eq 0 ];then
+	  rm -fr /pnfs/iihe/cms/store/user/$USER/$taskSdb
+	fi
+        
+	# Remove Task form ongoing DB 
         remove_task
       fi
   
@@ -751,6 +811,7 @@ resubmit=0
 addroot=0
 tag="NULL"
 taskname="NULL"
+pnfs=0
 
 for arg in $* ; do
 
@@ -763,6 +824,7 @@ for arg in $* ; do
     -hadd)      addroot=1  			 ; shift ;;
     -task)                   taskname=$2 ; shift ; shift ;;
     -tag)                    tag=$2      ; shift ; shift ;;
+    -pnfs)      pnfs=1 				 ; shift ;;
     -help)      Usage ;;
     *) ;;
   esac
@@ -795,8 +857,8 @@ if [ $submit -eq 1 ] ; then
   cfg=$option 
   parse_config
   echo "[btask] INFO: The following config will be used to start a task:"
-  print_config
   check_config
+  print_config
   mkdir_task
   make_autofilelist
   submit_jobs

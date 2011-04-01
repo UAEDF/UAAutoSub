@@ -10,7 +10,8 @@
 
 Usage=$( cat <<SETVAR
 
-Usage: subjob --inDir <code_directory> --inList <codefile1>,<codefile2>,...,<codefileN> --exec <exec1>,<exec2>,...,<execN> --outList <outfile1>,<outfile2>,..,<outfileN> [--sdbdir <SandboxBaseDir>]
+Usage: subjob --inDir <code_directory> --inList <codefile1>,<codefile2>,...,<codefileN> --exec <exec1>,<exec2>,...,<execN> --outList
+<outfile1>,<outfile2>,..,<outfileN> [--sdbdir <SandboxBaseDir>] [--pnfs]
 
 wildcard allowed !
 
@@ -29,6 +30,13 @@ test=`(cat $arglistfile | grep "sdbdir")`
 if [ ! -z "$test" ] ; then 
   SandboxBaseDir=`(cat $arglistfile | grep "sdbdir"  | awk -F"sdbdir"  '{print $2}' | sed "s: ::g" )`
 fi
+
+pnfs=0
+test=`(cat $arglistfile | grep "pnfs")`
+if [ ! -z "$test" ] ; then 
+  pnfs=1
+fi
+
 test=`(cat $arglistfile | grep "jobid")`
 if [ ! -z "$test" ] ; then
   jobid=`(         cat $arglistfile | grep "jobid"   | awk -F"jobid"   '{print $2}' | sed "s: ::g" )`
@@ -105,9 +113,17 @@ echo "tar xzf InputSandbox.tgz"              >> $subfile
 echo "$Exec"                                 >> $subfile
 echo "echo ----------------------- List of File at the end on grid node: ">> $subfile
 echo "ls                    "                >> $subfile 
-echo "tar czf OutputSandbox.tgz $ListOut"    >> $subfile  
-echo "mv OutputSandbox.tgz $SandboxDir"      >> $subfile
-
+if [ $pnfs -eq 0 ];then
+  echo "tar czf OutputSandbox.tgz $ListOut"    >> $subfile
+  echo "mv OutputSandbox.tgz $SandboxDir"      >> $subfile
+else
+  echo "mkdir -p /pnfs/iihe/cms/store/user/$USER/$SandboxDir"      >> $subfile
+  echo "for file in $ListOut;do"      >> $subfile
+  echo '  dccp $file '"/pnfs/iihe/cms/store/user/$USER/$SandboxDir/."      >> $subfile
+  echo "done"      >> $subfile
+  #echo "ln -s /pnfs/iihe/cms/store/user/$USER/$SandboxDir/OutputSandbox.tgz $SandboxDir/OutputSandbox.tgz"      >> $subfile
+  #echo "rm -f OutputSandbox.tgz"      >> $subfile
+fi
 ### Submit job
 echo "JobID           : $jobid"
 qsub -N $jobid -q localgrid@cream01 -o $SandboxDir/stdout -e $SandboxDir/stderr $subfile
