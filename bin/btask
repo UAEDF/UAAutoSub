@@ -36,7 +36,7 @@ SETVAR
 declare -a vJobID
 statusVerbose=0
 sourceroot_command='source /localgrid/xjanssen/root_5.26.00e_iihe_default_dcap/root/bin/thisroot.sh'
-
+pnfsdir="/pnfs/iihe/cms/store/user/$USER/"
 
 btask_config=`dirname $0`'/../config/btask.conf'
 workdir=$HOME'/'`( cat $btask_config | grep workdir | awk '{print $2}' )`
@@ -60,6 +60,13 @@ fi
 
 sdbdir=$(eval echo $( cat $btask_config | grep sandboxdir | awk '{print $2}' ))
 
+hadd_code=$(eval echo $( cat $btask_config | grep hadd_code | awk '{print $2}' ))
+
+ongodb_new="$ongodb""_v2"
+if [ ! -f $ongodb_new ];then
+  touch $ongodb_new
+  echo '[btask] Warning : No ongoingjob.db_v2 file -> void file created !!!!!'
+fi
 
 # ---------------------------- Functions ---------------------------------------
 
@@ -274,9 +281,7 @@ make_hadd_job(){
   declare -a sandboxes
   declare -a outputfiles
   
-  tarFile="OutputSandbox.tgz"
-  pnfsdir=/pnfs/iihe/cms/store/user/$USER/
-  
+  tarFile="OutputSandbox.tgz"  
   
   # Loop over SandBoxes and untar
   missingoutputs=0
@@ -345,10 +350,14 @@ make_hadd_job(){
   ihaddOutFiles=0
   makeDIR=''
   imakeDIR=0
+  HADD="hadd"
+  if [ $hadd_tweak -eq 1 ];then
+    HADD="./hadd_tweak"
+  fi
+  
   for iOutputFile in ${outputfiles[@]};do
     #hadd_command='hadd -f '${iOutputFile%.root}'_'$taskId'.root'
-    hadd_command='hadd -f '$iOutputFile
-    echo $hadd_command
+    hadd_command="$HADD -f "$iOutputFile
     
     #################### FIXME
     #  Xavier Stuff ==> Surely not needed when -pnfs
@@ -388,16 +397,27 @@ make_hadd_job(){
     execmult=`echo $execmult" ; "$hadd_command`
   done
 
-
+  inDir_hadd="`pwd`"
+  inList_hadd="conf_$taskId.txt"
+  execBase_hadd="$sourceroot_command $makeDIR"
+  if [ $hadd_tweak -eq 1 ];then
+    inDir_hadd="$inDir/"
+    cd $inDir_hadd
+    inList_hadd='hadd_tweak.cxx , plugins/* , macro/*.h , macro/*.C'
+    execBase_hadd="$sourceroot_command $makeDIR ; cd plugins/ ; ./makeHadd.sh -dic -lib -hadd"
+    cp $hadd_code $inDir_hadd/plugins/hadd_tweak.cxx
+  fi
+  
+  
   #making temp conf file
   cp /dev/null conf_$taskId.txt
   echo 'taskName = '`echo $taskName|sed "s:#.*::"`	>> conf_$taskId.txt
-  echo 'inDir    = '`pwd`				>> conf_$taskId.txt
-  echo 'inList   = 'conf_$taskId.txt			>> conf_$taskId.txt
+  echo 'inDir    = '$inDir_hadd				>> conf_$taskId.txt
+  echo 'inList   = '$inList_hadd			>> conf_$taskId.txt
   echo 'outDir   = '$outDir				>> conf_$taskId.txt
 # echo 'outList  = "*.root"'				>> conf_$taskId.txt
   echo 'outList  = '$haddOutFiles                       >> conf_$taskId.txt
-  echo 'execBase = '$sourceroot_command' '$makeDIR	>> conf_$taskId.txt
+  echo 'execBase = '$execBase_hadd			>> conf_$taskId.txt
   echo 'execMult = '`echo $execmult|sed "s#ff ;##"`	>> conf_$taskId.txt
   
   echo -e "\n[btask] INFO : Launching hadd job $taskId"
@@ -465,6 +485,8 @@ register_task(){
   echo $taskName'#'$taskID' '${vJobID[@]} >> $ongodb
   echo "[btask] INFO: The following task has been started: "$taskName"#"$taskID
   echo "[btask] INFO: composed of subtask : "${vJobID[@]}
+  
+  add_task_to_db
 }
 
 remove_task(){
@@ -472,7 +494,7 @@ remove_task(){
   cat $ongodb | grep    "$taskName" >> $donedb 
   tmpFile=`(mktemp)`
   cat $ongodb | grep -v "$taskName" >> $tmpFile
-   mv  $tmpFile $ongodb
+  mv  $tmpFile $ongodb
 #  echo "---- DONE DB -----"
 #  cat $donedb
 #  echo "---- ONGO DB -----"
@@ -485,7 +507,7 @@ print_status(){
   echo "----------------------------------------------------------------------"
   lcg-infosites --vo cms ce | grep "cream01.iihe.ac.be"
   echo "######################################################################"
-  get_status
+  get_status_new
   statusVerbose=0
 }
 
@@ -496,7 +518,86 @@ get_taskParam(){
    taskSdb=$sdbdir/$taskNAME'_'$taskID
 }
 
+get_para_from_db(){
+  taskName=`echo $job|awk '{print $1}'`
+  taskId=`echo $job|awk '{print $2}'`
+  nJobs=`echo $job|awk '{print $3}'`
+  pnfs=`echo $job|awk '{print $4}'`
+  
+  taskDir=$workdir/$taskName'_'$taskId
+  taskSdb=$sdbdir/$taskName'_'$taskId
+  
+  #making list of sandboxes & taskids
+  #declare -a sandboxes
+  #declare -a taskids
+  sandboxes=( '' )
+  taskids=( '' )
+  for i in `seq 1 $nJobs`;do
+    sandboxes=( `echo "${sandboxes[*]}" "$taskSdb/Sandbox_$taskId"_"$i/"` )
+    taskids=( `echo "${taskids[@]}" "$taskId""_""$i"` )
+  done
+}
+
+
+add_task_to_db(){
+  echo $taskName' '$taskID' '${#vJobID[@]}' '$pnfs >> $ongodb_new
+}
+
+get_status_new(){
+
+  if [ "$taskname" == "NULL" ] ; then
+    joblist1=`( cat $ongodb_new | sed "s: :;:g")` 
+  else
+    joblist1=$( cat $ongodb_new | grep "`echo $taskname|sed 's:#: :'`"| sed "s: :;:g")  
+  fi
+
+  if [ ! -z "$joblist1" ] ; then
+    if [ $statusVerbose -eq 1 ] ; then
+      echo "Job ID               Username Queue    Jobname          SessID NDS   TSK Memory Time  S Time "
+      echo "-------------------- -------- -------- ---------------- ------ ----- --- ------ ----- - -----"
+    fi
+  else
+    echo "[btask] INFO: get_status No active task"
+  fi
+
+  ALLJOBDONE=1
+
+  for job in $joblist1 ; do
+    job=`echo $job | sed "s:;: :g"` 
+  
+    get_para_from_db
+    
+    if [ $statusVerbose -eq 1 ] ; then
+      echo "------------------------- Task : $taskName#$taskId  ----------------------------"
+    fi
+        
+    for i in `seq 0 $( expr $nJobs - 1 )` ; do
+      testFile="${sandboxes[$i]}/OutputSandbox.tgz"
+      res=`(qstat -u $USER localgrid@cream01 | grep  ' '"${taskids[$i]}"' ')` 
+      if [ ! -z "$res" ]; then
+        if [ $statusVerbose -eq 1 ] ; then 
+          echo "$res"
+        fi
+        ALLJOBDONE=0
+        
+      else
+        res=`(ls $testFile 2>&1)`
+        if [ $statusVerbose -eq 1 ] ; then
+          if [ $pnfs -eq 0 ];then
+            echo ${taskids[$i]}" DONE -> File: "$res
+          else
+            echo ${taskids[$i]}" DONE -> File on pnfs: "`ls $pnfsdir${sandboxes[$i]} 2>&1`
+          fi
+        fi
+      fi
+    done
+  done
+
+}
+
+
 get_status(){
+echo "get_status"
 
   if [ "$taskname" == "NULL" ] ; then
     joblist1=`( cat $ongodb | sed "s: :;:g")` 
@@ -526,7 +627,7 @@ get_status(){
       if [ ! "$name" == "$taskName" ] ; then
         get_taskParam
         testFile=$taskSdb"/Sandbox_$name/OutputSandbox.tgz"
-        res=`(qstat -u $USER localgrid@cream01 | grep "$name ")` 
+        res=`(qstat -u $USER localgrid@cream01 | grep " $name ")` 
         if [ ! -z "$res" ]; then
           if [ $statusVerbose -eq 1 ] ; then 
             echo "$res"
@@ -536,7 +637,11 @@ get_status(){
         else
           res=`(ls $testFile 2>&1)`
           if [ $statusVerbose -eq 1 ] ; then
-            echo $name" DONE -> File: "$res
+	    if [ $pnfs -eq 0 ];then
+              echo $name" DONE -> File: "$res
+	    else
+	      echo $name" DONE -> File on pnfs: "`ls $pnfsdir$taskSdb/Sandbox_$name/ 2>&1`
+	    fi
           fi
         fi  
       fi
@@ -801,6 +906,9 @@ resubmit(){
 }
 
 
+
+
+
 # ----------------------------  Parsing  Arguments  ----------------------------
 
 submit=0
@@ -809,6 +917,7 @@ getout=0
 jkill=0
 resubmit=0
 addroot=0
+hadd_tweak=0
 tag="NULL"
 taskname="NULL"
 pnfs=0
@@ -816,16 +925,17 @@ pnfs=0
 for arg in $* ; do
 
   case $arg in
-    -submit)    submit=1   ; option=$2   ; shift ; shift ;;
-    -status)    status=1                         ; shift ;;
-    -get)       getout=1                         ; shift ;;
-    -kill)      jkill=1                          ; shift ;;
-    -resubmit)  resubmit=1 			 ; shift ;;
-    -hadd)      addroot=1  			 ; shift ;;
-    -task)                   taskname=$2 ; shift ; shift ;;
-    -tag)                    tag=$2      ; shift ; shift ;;
-    -pnfs)      pnfs=1 				 ; shift ;;
-    -help)      Usage ;;
+    -submit)      submit=1   ; option=$2   ; shift ; shift ;;
+    -status)      status=1                         ; shift ;;
+    -get)         getout=1                         ; shift ;;
+    -kill)        jkill=1                          ; shift ;;
+    -resubmit)    resubmit=1 			   ; shift ;;
+    -hadd)        addroot=1  			   ; shift ;;
+    -hadd_tweak)  addroot=1 ; hadd_tweak=1	   ; shift ;;
+    -task)                     taskname=$2 ; shift ; shift ;;
+    -tag)                      tag=$2      ; shift ; shift ;;
+    -pnfs)        pnfs=1 			   ; shift ;;
+    -help)        Usage ;;
     *) ;;
   esac
 
