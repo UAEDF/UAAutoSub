@@ -33,6 +33,14 @@ SETVAR
 
 # ---------------------------- Variables ---------------------------------------
 
+
+CYAN='\033[0;36m'
+CYAN='\033[1;36m'
+RED='\033[1;31m'
+GREEN='\033[1;32m'
+DEF='\033[0;m'
+
+
 declare -a vJobID
 statusVerbose=0
 sourceroot_command='source /localgrid/xjanssen/root_5.26.00e_iihe_default_dcap/root/bin/thisroot.sh'
@@ -50,11 +58,11 @@ fi
 ongodb=$dbdir'/'`( cat $btask_config | grep ongoing_db | awk '{print $2}' )`
 if [ ! -f $ongodb ];then
   touch $ongodb
-  echo '[btask] Warning : No ongoingjob.db file -> void file created !!!!!'
+  echo -e "${CYAN}[btask] WARNING :${DEF} No ongoingjob.db file -> void file created !!!!!"
 fi
 donedb=$dbdir'/'`( cat $btask_config | grep donejob_db | awk '{print $2}' )`
 if [ ! -f $donedb ];then
-  echo '[btask] Warning : No finishedjob.db file -> void file created !!!!!'
+  echo -e "${CYAN}[btask] WARNING :${DEF} No finishedjob.db file -> void file created !!!!!"
   touch $donedb
 fi
 
@@ -62,11 +70,6 @@ sdbdir=$(eval echo $( cat $btask_config | grep sandboxdir | awk '{print $2}' ))
 
 hadd_code=$(eval echo $( cat $btask_config | grep hadd_code | awk '{print $2}' ))
 
-ongodb_new="$ongodb""_v2"
-if [ ! -f $ongodb_new ];then
-  touch $ongodb_new
-  echo '[btask] Warning : No ongoingjob.db_v2 file -> void file created !!!!!'
-fi
 
 # ---------------------------- Functions ---------------------------------------
 
@@ -128,13 +131,13 @@ check_config()
   fi
   
   if [ $autoNJobs -ne 0 ] && [ $autoNfiles_per_jobs -ne 0 ];then
-    echo "[btask] ERROR : You need to specify only one of autoNJobs & autoNfiles_per_jobs."
+    echo -e "${RED}[btask] ERROR :${DEF} You need to specify only one of autoNJobs & autoNfiles_per_jobs."
     exit
   fi
   
   if [ $autoNJobs -ne 0 ] || [ $autoNfiles_per_jobs -ne 0 ];then
     if [ $autoON -eq 0 ];then
-      echo "[btask] ERROR : You need to specify autoFiles if you want to parallelize your jobs."
+      echo -e "${RED}[btask] ERROR :${DEF} You need to specify autoFiles if you want to parallelize your jobs."
       exit
     fi
   fi
@@ -142,7 +145,7 @@ check_config()
   #Checking if more than 1 job in execMult when autoON is on
   if [ $MultipleJobs -gt 0 ] && [ $autoON -gt 0 ];then
     if [ `echo $execMult|grep ';' -c` -gt 0 ];then
-      echo "[btask] Error : autoFile is on : you must have at most 1 job in execMult ( or you left a \";\"  at the end ? ) . Exiting ..."
+      echo -e "${RED}[btask] ERROR :${DEF} autoFile is on : you must have at most 1 job in execMult ( or you left a \";\"  at the end ? ) . Exiting ..."
       exit ;
     fi  
   fi
@@ -160,6 +163,137 @@ mkdir_task(){
   mkdir -p $taskSdb
 }
 
+get_specific_task(){
+  if [ "$taskname" == "NULL" ] ; then
+    echo -e "${RED}[btask] ERROR :${DEF} Please specify a task name using -task <taskname>"
+    exit
+  else
+    job=$( cat $ongodb | grep "`echo $taskname|sed 's:#: :'`")  
+  fi
+  
+
+  if [ -z "$job" ] ; then
+    echo -e "${RED}[btask] ERROR :${DEF} Task $taskname not found."
+    exit
+  fi
+  
+  # Check if job is done
+  get_para_from_db
+  is_task_finished
+  if [ `get_task_status` -eq 0 ] ; then
+    exit
+  fi
+}
+
+get_tasks(){
+  if [ "$taskname" == "NULL" ] ; then
+    joblist=`( cat $ongodb | sed "s: :;:g")` 
+  else
+    joblist=$( cat $ongodb | grep "`echo $taskname|sed 's:#: :'`"| sed "s: :;:g")  
+  fi
+  
+  if [ -z "$joblist" ] ; then
+    echo -e "${GREEN}[btask] INFO :${DEF} No active task"
+    exit
+  fi
+}
+
+print_status(){
+  echo -e "#CPU      Free    Total Jobs      Running Waiting ComputingElement    "
+  echo -e "----------------------------------------------------------------------"
+  lcg-infosites --vo cms ce | grep "cream01.iihe.ac.be"
+  echo -e "######################################################################"
+  
+  get_tasks
+    
+  echo -e "Job ID  	     Username Queue    Jobname  	SessID NDS   TSK Memory Time  S Time "
+  echo -e "-------------------- -------- -------- ---------------- ------ ----- --- ------ ----- - -----"
+  
+  for job in $joblist ; do
+    job=`echo $job | sed "s:;: :g"`
+    get_para_from_db
+    print_task_status
+  done
+}
+
+print_task_status(){
+  echo -e "------------------------- Task : $taskFullName  ----------------------------"
+  for i in `seq 0 $( expr $nJobs - 1 )` ; do
+    testFile="${sandboxes[$i]}OutputSandbox.tgz"
+    res=`(qstat -u $USER localgrid@cream01 | grep  ' '"${taskids[$i]}"' ')` 
+    if [ ! -z "$res" ]; then
+      echo -e "${RED}$res${DEF}"
+    else
+      res=`(ls $testFile 2>&1)`
+      if [ $pnfs -eq 0 ];then
+        echo -e "${GREEN}${taskids[$i]} DONE${DEF} -> File: "$res
+      else
+        echo -e "${GREEN}${taskids[$i]} DONE${DEF} -> File on pnfs: "`ls $pnfsdir${sandboxes[$i]} 2>&1`
+      fi
+    fi
+  done
+}
+
+get_para_from_db(){
+  taskName=`echo $job|awk '{print $1}'`
+  taskId=`echo $job|awk '{print $2}'`
+  taskFullName=`echo $taskName"#"$taskId`
+  nJobs=`echo $job|awk '{print $3}'`
+  pnfs=`echo $job|awk '{print $4}'`
+  
+  taskDir=$workdir/$taskName'_'$taskId
+  taskSdb=$sdbdir/$taskName'_'$taskId
+  
+  cfg=$taskDir/$taskName.cfg
+  parse_config
+  
+  #making list of sandboxes & taskids
+  #declare -a sandboxes
+  #declare -a taskids
+  sandboxes=( '' )
+  taskids=( '' )
+  for i in `seq 1 $nJobs`;do
+    sandboxes=( `echo "${sandboxes[*]}" "$taskSdb/Sandbox_$taskId"_"$i/"` )
+    taskids=( `echo "${taskids[@]}" "$taskId""_""$i"` )
+  done
+}
+
+
+add_task_to_db(){
+  cp /dev/null $taskDir/$taskName.cfg
+  print_config >> $taskDir/$taskName.cfg
+  echo $taskName' '$taskID' '${#vJobID[@]}' '$pnfs >> $ongodb
+  echo -e "${GREEN}[btask] INFO :${DEF} The following task has been started: "$taskName"#"$taskID
+  echo -e "${GREEN}[btask] INFO :${DEF} composed of subtask : "${vJobID[@]}
+}
+
+
+remove_task_from_db(){
+  echo -e "${GREEN}[btask] INFO :${DEF} Removing task: "$taskFullName
+  cat $ongodb | grep    "$taskName $taskId" >> $donedb 
+  tmpFile=`(mktemp)`
+  cat $ongodb | grep -v "$taskName $taskId" >> $tmpFile
+  mv  $tmpFile $ongodb
+}
+
+get_task_status(){
+  ALLJOBDONE=1
+  for i in `seq 0 $( expr $nJobs - 1 )` ; do
+    res=`(qstat -u $USER localgrid@cream01 | grep  ' '"${taskids[$i]}"' ')` 
+    if [ ! -z "$res" ]; then
+      ALLJOBDONE=0
+    fi
+  done
+  echo $ALLJOBDONE
+}
+
+is_task_finished(){
+  echo -e "\n${GREEN}[btask] INFO :${DEF} Checking task: "$taskFullName
+  if [ `get_task_status`  -eq 0 ] ; then
+    echo -e "${RED}[btask] ERROR :${DEF} Not all jobs are done for task: "$taskFullname
+  fi
+}
+
 make_autofilelist(){
 
   if [ $autoON -eq 0 ];then
@@ -170,17 +304,17 @@ make_autofilelist(){
   if [ `echo $autoFiles|grep ".txt" -c` -eq 1 ];then
     autodir=''
     autolist=`cat $inDir'/'$(echo $autoFiles|sed "s# ##")`
-    echo '[btask] INFO : Input is a txt file'
+    echo -e "${GREEN}[btask] INFO :${DEF} Input is a txt file"
   else
     
     if [ -d `echo $autoFiles|awk '{print $1}'` ];then
       autodir=$autoFiles
       autolist=`ls -d $autoFiles/*`
-      echo '[btask] INFO : Input is a directory'
+      echo -e "${GREEN}[btask] INFO :${DEF} Input is a directory"
     else
       autodir=''
       autolist=`ls -d $autoFiles`
-      echo '[btask] INFO : Input is a list of files'
+      echo -e "${GREEN}[btask] INFO :${DEF} Input is a list of files"
     fi
   fi
   rm -fr $taskDir/filelist_[0-9].txt
@@ -195,9 +329,9 @@ make_autofilelist(){
   fi
   
   
-  echo '[btask] INFO : Will create automatically '$autoNJobs'(+1?) jobs with '$files_per_jobs' files per jobs'
-  echo '               Your code needs to take filelist.txt as input , which is automatically created in "inDir" and added to "inList"'
-  echo '               If filelist.txt already exists in "inDir"  , it will first be moved, and then restored at the end of the job'
+  echo -e "${GREEN}[btask] INFO :${DEF} Will create automatically $autoNJobs(+1?) jobs with $files_per_jobs files per jobs"
+  echo -e '               Your code needs to take filelist.txt as input , which is automatically created in "inDir" and added to "inList"'
+  echo -e '               If filelist.txt already exists in "inDir"  , it will first be moved, and then restored at the end of the job'
   
   
 
@@ -241,107 +375,59 @@ make_autofilelist(){
 
 make_hadd_job(){
 
-  if [ "$taskname" == "NULL" ] ; then
-    echo '[btask] ERROR : Please specify a task name using -task <taskname>'
-    exit
-  else
-    job=`( cat $ongodb | grep "$taskname" | sed "s: :;:g")`
-  fi
-
-  if [ -z "$job" ] ; then
-    echo "[btask] ERROR : Task $taskname not found."
-    exit
-  fi
-
-
-  declare -a arr2
-  arr2=$(echo $job | tr ";" "\n")
-  taskName=`(echo ${arr2[0]} | awk '{print $1}')`
-
-  # Check if job is done
-  taskname=$taskName  
-  echo " "
-  echo "[btask] INFO: Checking task: "$taskname    
-  get_status
-  if [ $ALLJOBDONE -eq 0 ] ; then
-    echo "[btask] ERROR: Not all jobs are done for task: "$taskname
-    exit
-  fi
+  get_specific_task
   
-  # Retrieve task parameters 
-  
-  get_taskParam
-  cfg=$taskDir/$taskNAME.cfg 
-  parse_config
-  taskName=`(echo ${arr2[0]} | awk '{print $1}')`
-  
-  echo '[btask] INFO: Retrieving task: '$taskName 
-  taskId=`echo $taskName"_hadd"|sed "s:#:_:"`
-  
-  declare -a sandboxes
-  declare -a outputfiles
-  
+  outputfiles=( '' )
   tarFile="OutputSandbox.tgz"  
   
   # Loop over SandBoxes and untar
   missingoutputs=0
-  for name in ${arr2[@]} ; do
-    if [ ! "$name" == "$taskName" ] ; then
+  for i in `seq 0 $( expr $nJobs - 1 )` ; do
 
-      cd $taskSdb"/Sandbox_$name/"
-      
-      #checking if $tarFile is present
-      if [[ ! -f $tarFile && $pnfs -eq 0 ]] || [[ `ls $pnfsdir$taskSdb"/Sandbox_$name/"|wc -l` -eq 0 && $pnfs -gt 0 ]] ;then
-        echo '[btask] WARNING : No output files were present for job '$name
-	missingoutputs=1
-	continue
-      fi
-
-      #add to list of sandboxes
-      sandboxes=`echo $sandboxes $taskSdb"/Sandbox_$name/"`
-      #echo $sandboxes
-      
-      # Unpack tar file
-      if [ $pnfs -eq 0 ] ;then
-        tar xzf $tarFile
-      fi
+    cd ${sandboxes[$i]}
+    
+    #checking if $tarFile is present
+    if [[ ! -f $tarFile && $pnfs -eq 0 ]] || [[ $pnfs -gt 0  && `ls $pnfsdir${sandboxes[$i]}|wc -l` -eq 0 ]] ;then
+      echo -e "${CYAN}[btask] WARNING :${DEF} No output files were present for job "${taskids[$i]}
+      missingoutputs=1
+      continue
     fi
+    
+    # Unpack tar file
+    if [ $pnfs -eq 0 ] ;then
+      tar xzf $tarFile
+    fi
+    
   done
   
   if [ $missingoutputs -gt 0 ];then
-    echo '[btask] INFO : You should try to resubmit the task with btask -resubmit -task '$taskName
+    echo -e "${GREEN}[btask] INFO :${DEF} You should try to resubmit the task with btask -resubmit -task "$taskFullName
     read -p "        ==> Do you want to continue with the hadd job ? [y/n] [default=y]  " a 
-    case $a in
-      n )
-        exit
-      ;;
-    esac
-        
+    case $a in n ) exit ;; esac
   fi
   
   #making list of output files
   outputfiles=''
   if [ $pnfs -eq 0 ] ;then
-    fileList=`(tar vxzf $taskSdb/Sandbox_$name/$tarFile)`
+    fileList=`(tar tzf ${sandboxes[$i]}/$tarFile)`
   else
-    echo "fff  " $pnfsdir$taskSdb/Sandbox_$name/
-    fileList=`ls $pnfsdir$taskSdb/Sandbox_$name/`
+    fileList=`ls $pnfsdir${sandboxes[$i]}`
   fi
   
   for file in $fileList ; do
     #if [ `file $file|grep 'ROOT' -c` -eq 1 ];then  #can't use it on pnfs ...
     if [ `echo $file|grep '.root' -c` -eq 1 ];then
-      outputfiles=`echo $outputfiles $file`
+      outputfiles=( `echo "${outputfiles[@]}" "$file"` )
     fi
   done
   
   if [ ${#outputfiles[@]} -eq 0 ];then
-    echo "[btask] Warning : no root ouput files were created by the job. Nothing to hadd ..."
+    echo -e "${CYAN}[btask] WARNING :${DEF} no root ouput files were created by the job. Nothing to hadd ..."
     exit 
   fi
   
-  echo "[btask] INFO : Will run ${#outputfiles[@]} hadd subjobs on the ${#outputfiles[@]} following output files :"
-  echo "               ${outputfiles[@]}"
+  echo -e "${GREEN}[btask] INFO :${DEF} Will run ${#outputfiles[@]} hadd subjobs on the ${#outputfiles[@]} following output files :"
+  echo -e "               ${outputfiles[@]}"
   
   
   #making path to execute
@@ -374,15 +460,11 @@ make_hadd_job(){
     ####################
     
     for iSandBox in ${sandboxes[@]};do
-      if [[ ! -f $iSandBox/$iOutputFile && $pnfs -eq 0 ]] || [[ ! -f $pnfsdir$iSandBox/$iOutputFile && $pnfs -gt 0 ]] ;then
-        echo '[btask] WARNING : subjob managed to retrieve output, but problem arrised when untaring '$iOutputFile' from '$iSandBox
-	echo '                  Will not run hadd on this subjob'
+      if [[ ! -f $iSandBox/$iOutputFile && -f $iSandBox/$tarFile && $pnfs -eq 0 ]] || [[ $pnfs -gt 0 && ! -f $pnfsdir$iSandBox/$iOutputFile ]] ;then
+        echo -e "${CYAN}[btask] WARNING :${DEF} subjob managed to retrieve output, but problem arrised when untaring "$iOutputFile' from '$iSandBox
+	echo -e '                  Will not run hadd on this subjob'
         read -p "        ==> Do you want to continue with the hadd job ? [y/n] [default=y]  " a 
-        case $a in
-          n )
-            exit
-          ;;
-        esac
+        case $a in n ) exit ;; esac
 	continue
       fi
       
@@ -411,7 +493,7 @@ make_hadd_job(){
   
   #making temp conf file
   cp /dev/null conf_$taskId.txt
-  echo 'taskName = '`echo $taskName|sed "s:#.*::"`	>> conf_$taskId.txt
+  echo 'taskName = '`echo $taskName`			>> conf_$taskId.txt
   echo 'inDir    = '$inDir_hadd				>> conf_$taskId.txt
   echo 'inList   = '$inList_hadd			>> conf_$taskId.txt
   echo 'outDir   = '$outDir				>> conf_$taskId.txt
@@ -420,10 +502,10 @@ make_hadd_job(){
   echo 'execBase = '$execBase_hadd			>> conf_$taskId.txt
   echo 'execMult = '`echo $execmult|sed "s#ff ;##"`	>> conf_$taskId.txt
   
-  echo -e "\n[btask] INFO : Launching hadd job $taskId"
+  echo -e "\n${GREEN}[btask] INFO :${DEF} Launching hadd job hadd_$taskId"
   echo -e "==========================================================================================\n"
   
-  btask -submit conf_$taskId.txt -tag "hadd_"`echo $taskName|sed "s:.*#::"`
+  btask -submit conf_$taskId.txt -tag "hadd_$taskId"
   #cat conf_$taskId.txt
 }
 
@@ -479,96 +561,33 @@ submit_jobs(){
   fi
 }
 
-register_task(){
-  cp /dev/null $taskDir/$taskName.cfg
-  print_config >> $taskDir/$taskName.cfg
-  echo $taskName'#'$taskID' '${vJobID[@]} >> $ongodb
-  echo "[btask] INFO: The following task has been started: "$taskName"#"$taskID
-  echo "[btask] INFO: composed of subtask : "${vJobID[@]}
-  
-  add_task_to_db
-}
-
-remove_task(){
-  echo "[btask] INFO: Removing task: "$taskName
-  cat $ongodb | grep    "$taskName" >> $donedb 
-  tmpFile=`(mktemp)`
-  cat $ongodb | grep -v "$taskName" >> $tmpFile
-  mv  $tmpFile $ongodb
-#  echo "---- DONE DB -----"
-#  cat $donedb
-#  echo "---- ONGO DB -----"
-#  cat $ongodb 
-}
-
-print_status(){
-  statusVerbose=1
-  echo "#CPU      Free    Total Jobs      Running Waiting ComputingElement    "
-  echo "----------------------------------------------------------------------"
-  lcg-infosites --vo cms ce | grep "cream01.iihe.ac.be"
-  echo "######################################################################"
-  get_status_new
-  statusVerbose=0
-}
-
-get_taskParam(){
-   taskNAME=`(echo $taskName | awk -F"#" '{print $1}')`
-   taskID=`(echo $taskName | awk -F"#" '{print $2}')`
-   taskDir=$workdir/$taskNAME'_'$taskID
-   taskSdb=$sdbdir/$taskNAME'_'$taskID
-}
-
-get_para_from_db(){
-  taskName=`echo $job|awk '{print $1}'`
-  taskId=`echo $job|awk '{print $2}'`
-  nJobs=`echo $job|awk '{print $3}'`
-  pnfs=`echo $job|awk '{print $4}'`
-  
-  taskDir=$workdir/$taskName'_'$taskId
-  taskSdb=$sdbdir/$taskName'_'$taskId
-  
-  #making list of sandboxes & taskids
-  #declare -a sandboxes
-  #declare -a taskids
-  sandboxes=( '' )
-  taskids=( '' )
-  for i in `seq 1 $nJobs`;do
-    sandboxes=( `echo "${sandboxes[*]}" "$taskSdb/Sandbox_$taskId"_"$i/"` )
-    taskids=( `echo "${taskids[@]}" "$taskId""_""$i"` )
-  done
-}
-
-
-add_task_to_db(){
-  echo $taskName' '$taskID' '${#vJobID[@]}' '$pnfs >> $ongodb_new
-}
 
 get_status_new(){
 
   if [ "$taskname" == "NULL" ] ; then
-    joblist1=`( cat $ongodb_new | sed "s: :;:g")` 
+    joblist=`( cat $ongodb | sed "s: :;:g")` 
   else
-    joblist1=$( cat $ongodb_new | grep "`echo $taskname|sed 's:#: :'`"| sed "s: :;:g")  
+    joblist=$( cat $ongodb | grep "`echo $taskname|sed 's:#: :'`"| sed "s: :;:g")  
   fi
 
-  if [ ! -z "$joblist1" ] ; then
+  if [ ! -z "$joblist" ] ; then
     if [ $statusVerbose -eq 1 ] ; then
-      echo "Job ID               Username Queue    Jobname          SessID NDS   TSK Memory Time  S Time "
-      echo "-------------------- -------- -------- ---------------- ------ ----- --- ------ ----- - -----"
+      echo -e "Job ID               Username Queue    Jobname          SessID NDS   TSK Memory Time  S Time "
+      echo -e "-------------------- -------- -------- ---------------- ------ ----- --- ------ ----- - -----"
     fi
   else
-    echo "[btask] INFO: get_status No active task"
+    echo -e "${GREEN}[btask] INFO :${DEF} get_status No active task"
   fi
 
   ALLJOBDONE=1
 
-  for job in $joblist1 ; do
+  for job in $joblist ; do
     job=`echo $job | sed "s:;: :g"` 
   
     get_para_from_db
     
     if [ $statusVerbose -eq 1 ] ; then
-      echo "------------------------- Task : $taskName#$taskId  ----------------------------"
+      echo -e "------------------------- Task : $taskFullName  ----------------------------"
     fi
         
     for i in `seq 0 $( expr $nJobs - 1 )` ; do
@@ -576,7 +595,7 @@ get_status_new(){
       res=`(qstat -u $USER localgrid@cream01 | grep  ' '"${taskids[$i]}"' ')` 
       if [ ! -z "$res" ]; then
         if [ $statusVerbose -eq 1 ] ; then 
-          echo "$res"
+          echo -e "$res"
         fi
         ALLJOBDONE=0
         
@@ -584,9 +603,9 @@ get_status_new(){
         res=`(ls $testFile 2>&1)`
         if [ $statusVerbose -eq 1 ] ; then
           if [ $pnfs -eq 0 ];then
-            echo ${taskids[$i]}" DONE -> File: "$res
+            echo -e ${taskids[$i]}" DONE -> File: "$res
           else
-            echo ${taskids[$i]}" DONE -> File on pnfs: "`ls $pnfsdir${sandboxes[$i]} 2>&1`
+            echo -e ${taskids[$i]}" DONE -> File on pnfs: "`ls $pnfsdir${sandboxes[$i]} 2>&1`
           fi
         fi
       fi
@@ -596,310 +615,180 @@ get_status_new(){
 }
 
 
-get_status(){
-echo "get_status"
+kill_jobs_new(){
 
-  if [ "$taskname" == "NULL" ] ; then
-    joblist1=`( cat $ongodb | sed "s: :;:g")` 
-  else
-    joblist1=`( cat $ongodb | grep "$taskname"  | sed "s: :;:g")`  
-  fi
+  get_tasks
 
-  if [ ! -z "$joblist1" ] ; then
-    if [ $statusVerbose -eq 1 ] ; then
-      echo "Job ID               Username Queue    Jobname          SessID NDS   TSK Memory Time  S Time "
-      echo "-------------------- -------- -------- ---------------- ------ ----- --- ------ ----- - -----"
-    fi
-  else
-    echo "[btask] INFO: get_status No active task"
-  fi
-
-  ALLJOBDONE=1
-
-  for job in $joblist1 ; do
-    declare -a arr
-    arr=$(echo $job | tr ";" "\n")
-    taskName=`(echo ${arr[0]} | awk '{print $1}')`
-    if [ $statusVerbose -eq 1 ] ; then
-      echo "------------------------- Task : $taskName  ----------------------------"
-    fi
-    for name in ${arr[@]} ; do
-      if [ ! "$name" == "$taskName" ] ; then
-        get_taskParam
-        testFile=$taskSdb"/Sandbox_$name/OutputSandbox.tgz"
-        res=`(qstat -u $USER localgrid@cream01 | grep " $name ")` 
-        if [ ! -z "$res" ]; then
-          if [ $statusVerbose -eq 1 ] ; then 
-            echo "$res"
-          fi
-          ALLJOBDONE=0
-          
-        else
-          res=`(ls $testFile 2>&1)`
-          if [ $statusVerbose -eq 1 ] ; then
-	    if [ $pnfs -eq 0 ];then
-              echo $name" DONE -> File: "$res
-	    else
-	      echo $name" DONE -> File on pnfs: "`ls $pnfsdir$taskSdb/Sandbox_$name/ 2>&1`
-	    fi
-          fi
-        fi  
+  for job in $joblist ; do
+    job=`echo $job | sed "s:;: :g"` 
+    get_para_from_db
+    
+    echo -e "${GREEN}[btask] INFO :${DEF} Killing Task: "$taskFullName
+    for i in `seq 0 $( expr $nJobs - 1 )`; do
+      echo -e "${GREEN}[btask] INFO :${DEF} Killing SubTask: "${taskids[$i]}
+      # Kill job (if still running)
+      res=`(qstat -u $USER localgrid@cream01 | grep ${taskids[$i]})` 
+      if [ ! -z "$res" ]; then
+        id=`(echo $res | awk '{print $1}' | awk -F'.' '{print $1}')`
+        qdel $id.cream01 
       fi
+      
+      # Remove SubTask SandBox
+      rm -rf ${sandboxes[$i]}
+      
     done
-  done
-
-}
-
-kill_jobs(){
-
-if [ "$taskname" == "NULL" ] ; then
-  joblist3=`( cat $ongodb | sed "s: :;:g")` 
-else
-  joblist3=`( cat $ongodb | grep "$taskname"  | sed "s: :;:g")`  
-fi
-
-  if [ -z "$joblist3" ] ; then
-    echo "[btask] INFO: kill_jobs:  No active task"
-  else
-
-  for job in $joblist3 ; do
-    declare -a arr
-    arr=$(echo $job | tr ";" "\n")
-    taskName=`(echo ${arr[0]} | awk '{print $1}')`
-    taskname=$taskName
-    get_taskParam 
-    echo "[btask] INFO: Killing Task: "$taskname
-    for name in ${arr[@]} ; do
-      if [ ! "$name" == "$taskName" ] ; then
-        echo "[btask] INFO: Killing SubTask: "$name
-        # Kill job (if still running)
-        res=`(qstat -u $USER localgrid@cream01 | grep $name)` 
-        if [ ! -z "$res" ]; then
-          id=`(echo $res | awk '{print $1}' | awk -F'.' '{print $1}')`
-          qdel $id.cream01 
-        fi
-        # Remove SubTask SandBox
-        rm -rf $taskSdb/Sandbox_$name
-      fi
-    done
+    
     # Remove Task SandBox
     rm -rf $taskSdb
+    if [ $pnfs -eq 1 ];then
+      rm -fr $pnfsdir$taskSdb
+    fi
+    
+    
     # Remove Task form ongoing DB 
-    remove_task
+    remove_task_from_db
 
 
   done
-fi
 
 } 
 
+get_out_new(){
 
-get_out(){
+  get_tasks
 
-  if [ "$taskname" == "NULL" ] ; then
-    joblist2=`( cat $ongodb | sed "s: :;:g")`
-  else
-    joblist2=`( cat $ongodb | grep "$taskname" | sed "s: :;:g")`
-  fi
-
-  if [ -z "$joblist2" ] ; then
-    echo "[btask] INFO: No active task"
-  fi
-
-
-  for job in $joblist2 ; do
-    declare -a arr2
-    arr2=$(echo $job | tr ";" "\n")
-    taskName=`(echo ${arr2[0]} | awk '{print $1}')`
-
+  for job in $joblist ; do
+    job=`echo $job | sed "s:;: :g"` 
+    get_para_from_db
+    
     # Check if job is done
-
-     
-    taskname=$taskName  
-    echo " "
-    echo "[btask] INFO: Checking task: "$taskname    
-    get_status
-    if [ $ALLJOBDONE -eq 0 ] ; then
-      echo "[btask] ERROR: Not all jobs are done for task: "$taskname
-      #print_status
-    else
-
-      # Retrieve task parameters 
-  
-      get_taskParam
-      cfg=$taskDir/$taskNAME.cfg 
-      parse_config
-      taskName=`(echo ${arr2[0]} | awk '{print $1}')`
-  
-      echo '[btask] INFO: Retrieving task: '$taskName 
-      echo '	    ==> log files are in '$taskDir
-  
-      # Go to outDir 
-  
-      cd $outDir
-      iJob=0
-  
-      tmpdir=$taskNAME'_'$taskID
-      mkdir $tmpdir
-      cd $tmpdir
-  
-      clean=1
-      read -p "[btask] INFO: Do you want to clean this task ? [y/n] [default=y]  " a 
-      case $a in
-        n )
-          clean=0
-        ;;
-      esac
-  
-      # Loop over SandBoxes 
-  
-      for name in ${arr2[@]} ; do
-        if [ ! "$name" == "$taskName" ] ; then
-          iJob=`expr $iJob + 1`
-          echo "[btask] INFO: Retrieving task: "$taskName " job: "$iJob 
-  
-          if [ "$tag" == "NULL" ] ; then
-            tagID=$taskID
-          else
-            tagID=$tag
-          fi
-
-
-	  
-          tarFile=$taskSdb"/Sandbox_$name/OutputSandbox.tgz"
-	  
-	  #checking if $tarFile is present
-          if [ ! -f $tarFile ] && [ $pnfs -eq 0 ];then
-            echo '[btask] WARNING : No output files were present for job '$name
-	    continue
-          else
-	    
-            # Unpack tar file
-	    echo '	    ==> output files :'
-	    
-	    if [ $pnfs -eq 0 ];then
-	      fileList=`(tar tzf $tarFile)`
-	    else
-	      fileList=`ls /pnfs/iihe/cms/store/user/$USER/$taskSdb/Sandbox_$name/`
-	    fi
-	    
-            for file in $fileList ; do
-              test=`echo $file | (grep "\.")`
-              if [ ! -z $test ] ; then
-                first=`(echo  $file | awk '{split($0,a,"."); n=0 ; for (i in a) n++ ; nm1=n-1; for (i=1; i<nm1; i++) printf a[i]"." ; print a[nm1]"_" }')`
-                middle=$taskNAME'_'$tagID'_'$iJob'.'
-                last=`(echo  $file | awk '{split($0,a,"."); n=0 ; for (i in a) n++ ; print a[n]}')`
-                outfile=$first$middle$last
-              else
-                outfile=$file"_"$taskNAME'_'$tagID'_'$iJob
-              fi
-	      
-	      if [ $pnfs -eq 0 ];then
-	        tar xzf $tarFile $file 
-                mv $file ../$outfile
-	      else
-	        dccp /pnfs/iihe/cms/store/user/$USER/$taskSdb/Sandbox_$name/$file ../$outfile &> /dev/null
-	      fi
-	                 
-	      echo '                 '"$outDir/$outfile"
-            done
-          fi
-	  
-	  
-	  
-          # Copy logfiles
-  
-          errFileIn=$taskSdb"/Sandbox_$name/stderr"
-          outFileIn=$taskSdb"/Sandbox_$name/stdout"
-  
-          errFileOut=$taskDir"/stderr_$iJob"
-          outFileOut=$taskDir"/stdout_$iJob"
-  
-          cp $errFileIn $errFileOut
-          cp $outFileIn $outFileOut
-          
-  
-          # Remove SubTask SandBox
-	  if [ $clean -eq 1 ];then
-            rm -rf $taskSdb/Sandbox_$name
-	  fi
-	  
-        fi
-      done
-      cd ..
-      rm -rf $tmpdir 
-      
-      
-      if [ $clean -eq 1 ];then
-        # Remove Task SandBox
-        rm -rf $taskSdb
-        if [ $pnfs -eq 0 ];then
-	  rm -fr /pnfs/iihe/cms/store/user/$USER/$taskSdb
-	fi
-        
-	# Remove Task form ongoing DB 
-        remove_task
-      fi
-  
+    is_task_finished
+    if [ `get_task_status` -eq 0 ];then
+      continue
     fi
+      
+    echo -e "${GREEN}[btask] INFO :${DEF} Retrieving task: "$taskFullName 
+    echo -e '	  ==> log files are in '$taskDir
+  
+    # Go to outDir 
+  
+    cd $outDir
+  
+    tmpdir=$taskName'_'$taskId
+    mkdir $tmpdir
+    cd $tmpdir
+  
+    clean=1
+    echo -en "${GREEN}[btask] INFO :${DEF}"
+    read -p " Do you want to clean this task ? [y/n] [default=y]  " a 
+    case $a in n ) clean=0 ;; esac
+  
+    # Loop over SandBoxes 
+    for i in `seq 0 $( expr $nJobs - 1 )` ; do
+      echo -e "${GREEN}[btask] INFO :${DEF} Retrieving task: "$taskFullName " job: "${taskids[$i]} 
+  
+      if [ "$tag" == "NULL" ] ; then
+        tagID=$taskId
+      else
+        tagID=$tag
+      fi
+
+      tarFile=${sandboxes[$i]}"/OutputSandbox.tgz"
+      
+      #checking if $tarFile is present
+      if [ ! -f $tarFile ] && [ $pnfs -eq 0 ];then
+        echo -e "${CYAN}[btask] WARNING :${DEF} No output files were present for job "${taskids[$i]}
+        continue
+      else
+        
+        # Unpack tar file
+        echo -e '  	==> output files :'
+        
+        if [ $pnfs -eq 0 ];then
+          fileList=`(tar tzf $tarFile)`
+        else
+          fileList=`ls $pnfsdir${sandboxes[$i]}`
+        fi
+        
+        for file in $fileList ; do
+	
+	  #making output file name
+          test=`echo $file | (grep "\.")`
+          if [ ! -z $test ] ; then
+            first=`(echo  $file | awk '{split($0,a,"."); n=0 ; for (i in a) n++ ; nm1=n-1; for (i=1; i<nm1; i++) printf a[i]"." ; print a[nm1]"_" }')`
+            middle=$taskName'_'$tagID'_'$i'.'
+            last=`(echo  $file | awk '{split($0,a,"."); n=0 ; for (i in a) n++ ; print a[n]}')`
+            outfile=$first$middle$last
+          else
+            outfile=$file"_"$taskName'_'$tagID'_'$i
+          fi
+          
+	  #untaring/copying the files
+          if [ $pnfs -eq 0 ];then
+            tar xzf $tarFile $file 
+            mv $file ../$outfile
+          else
+            dccp $pnfsdir${sandboxes[$i]}/$file ../$outfile &> /dev/null
+          fi
+        	     
+          echo -e '		 '"$outDir/$outfile"
+        done
+      fi
+      
+      
+      
+      # Copy logfiles
+  
+      errFileIn="${sandboxes[$i]}/stderr"
+      outFileIn="${sandboxes[$i]}/stdout"
+  
+      errFileOut=$taskDir"/stderr_$i"
+      outFileOut=$taskDir"/stdout_$i"
+  
+      cp $errFileIn $errFileOut
+      cp $outFileIn $outFileOut
+    
+  
+      # Remove SubTask SandBox
+      if [ $clean -eq 1 ];then
+        rm -rf ${sandboxes[$i]}
+      fi
+      
+      
+    done
+    cd ..
+    rm -rf $tmpdir 
+    
+    
+    if [ $clean -eq 1 ];then
+      # Remove Task SandBox
+      rm -rf $taskSdb
+      if [ $pnfs -eq 0 ];then
+        rm -fr $pnfsdir$taskSdb
+      fi
+      
+      # Remove Task form ongoing DB 
+      remove_task_from_db
+    fi
+  
+    
   done
   
 }
 
 resubmit(){
 
-
-  if [ "$taskname" == "NULL" ] ; then
-    echo '[btask] ERROR : Please specify a task name using -task <taskname>'
-    exit
-  else
-    job=`( cat $ongodb | grep "$taskname" | sed "s: :;:g")`
-  fi
-
-  if [ -z "$job" ] ; then
-    echo "[btask] ERROR : Task $taskname not found."
-    exit
-  fi
-
-
-  declare -a arr2
-  arr2=$(echo $job | tr ";" "\n")
-  taskName=`(echo ${arr2[0]} | awk '{print $1}')`
-
-  # Check if job is done
-  taskname=$taskName  
-  echo " "
-  echo "[btask] INFO: Checking task: "$taskname    
-  get_status
-  if [ $ALLJOBDONE -eq 0 ] ; then
-    echo "[btask] ERROR: Not all jobs are done for task: "$taskname
-    exit
-  fi
-  
-  # Retrieve task parameters 
-  
-  get_taskParam
-  cfg=$taskDir/$taskNAME.cfg 
-  parse_config
-  taskName=`(echo ${arr2[0]} | awk '{print $1}')`
-  
-  #echo '[btask] INFO: Retrieving task: '$taskName 
+  get_specific_task
   
   tarFile="OutputSandbox.tgz"
-  
-  # Loop over SandBoxes and untar
-  for name in ${arr2[@]} ; do
-    if [ ! "$name" == "$taskName" ] ; then
-
-      cd $taskSdb"/Sandbox_$name/"
-      
-      #checking if $tarFile is present
-      if [ ! -f $tarFile ];then
-        echo '[btask] WARNING : No output files were present for job '$name
-        echo '        ==> resubmitting the job '
-	qsub -N $name -q localgrid@cream01 -o `pwd`/stdout_retry -e `pwd`/stderr_retry qsub.sh > /dev/null
-      fi
-
+  for i in `seq 0 $( expr $nJobs - 1 )` ; do
+    cd ${sandboxes[$i]}
+    
+    #checking if $tarFile is present
+    if [[ ! -f $tarFile && $pnfs -eq 0 ]] || [[ $pnfs -gt 0  && `ls $pnfsdir${sandboxes[$i]}|wc -l` -eq 0 ]];then
+      echo -e "${CYAN}[btask] WARNING :${DEF} No output files were present for job "${taskids[$i]}
+      echo -e '	    ==> resubmitting the job '
+      qsub -N ${taskids[$i]} -q localgrid@cream01 -o `pwd`/stdout_retry -e `pwd`/stderr_retry qsub.sh > /dev/null
     fi
   done
 
@@ -952,11 +841,11 @@ test=`expr $test + $resubmit`
 test=`expr $test + $addroot`
 
 if [ $test -eq 0 ] ; then
-  echo "Error: No valid arguments !"
+  echo -e "${RED}[btask] ERROR :${DEF} No valid arguments !"
   Usage
 fi
 if [ $test -gt 1 ] ; then
-  echo "Error: Can not do submit, status, get, resubmit, hadd at the same time !"
+  echo -e "${RED}[btask] ERROR :${DEF} Can not do submit, status, get, resubmit, hadd at the same time !"
   Usage
 fi
 
@@ -966,13 +855,13 @@ if [ $submit -eq 1 ] ; then
 
   cfg=$option 
   parse_config
-  echo "[btask] INFO: The following config will be used to start a task:"
+  echo -e "${GREEN}[btask] INFO :${DEF} The following config will be used to start a task:"
   check_config
   print_config
   mkdir_task
   make_autofilelist
   submit_jobs
-  register_task
+  add_task_to_db
 
 fi # end [ $submit -eq 1 ] 
 
@@ -980,7 +869,7 @@ fi # end [ $submit -eq 1 ]
 
 if [ $jkill  -eq 1 ] ; then
 
-  kill_jobs
+  kill_jobs_new
 
 fi # end [ $jkill  -eq 1 ]
 
@@ -1005,7 +894,7 @@ fi # end [ $status -eq 1 ]
 
 if [ $getout -eq 1 ] ; then
 
-  get_out
+  get_out_new
 
 fi # end [ $getout -eq 1 ] 
 
