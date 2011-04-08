@@ -34,10 +34,11 @@ SETVAR
 # ---------------------------- Variables ---------------------------------------
 
 
-CYAN='\033[0;36m'
+BLUE='\033[1;34m'
 CYAN='\033[1;36m'
 RED='\033[1;31m'
 GREEN='\033[1;32m'
+YEL='\033[1;33m'
 DEF='\033[0;m'
 
 
@@ -199,14 +200,14 @@ get_tasks(){
 }
 
 print_status(){
-  echo -e "#CPU      Free    Total Jobs      Running Waiting ComputingElement    "
+  echo -e "${BLUE}#CPU      Free    Total Jobs      Running Waiting ComputingElement${DEF}    "
   echo -e "----------------------------------------------------------------------"
   lcg-infosites --vo cms ce | grep "cream01.iihe.ac.be"
   echo -e "######################################################################"
   
   get_tasks
     
-  echo -e "Job ID  	     Username Queue    Jobname  	SessID NDS   TSK Memory Time  S Time "
+  echo -e "${BLUE}Job ID  	     Username Queue    Jobname  	SessID NDS   TSK Memory Time  S Time${DEF} "
   echo -e "-------------------- -------- -------- ---------------- ------ ----- --- ------ ----- - -----"
   
   for job in $joblist ; do
@@ -217,12 +218,16 @@ print_status(){
 }
 
 print_task_status(){
-  echo -e "------------------------- Task : $taskFullName  ----------------------------"
+  echo -e "------------------------- Task : ${BLUE}$taskFullName${DEF}  ----------------------------"
   for i in `seq 0 $( expr $nJobs - 1 )` ; do
     testFile="${sandboxes[$i]}OutputSandbox.tgz"
     res=`(qstat -u $USER localgrid@cream01 | grep  ' '"${taskids[$i]}"' ')` 
     if [ ! -z "$res" ]; then
-      echo -e "${RED}$res${DEF}"
+      if [ `echo $res|grep -e " Q " -c` -eq 1 ];then
+        echo -e "${RED}$res${DEF}"
+      else
+        echo -e "${YEL}$res${YEL}"
+      fi
     else
       res=`(ls $testFile 2>&1)`
       if [ $pnfs -eq 0 ];then
@@ -263,8 +268,8 @@ add_task_to_db(){
   cp /dev/null $taskDir/$taskName.cfg
   print_config >> $taskDir/$taskName.cfg
   echo $taskName' '$taskID' '${#vJobID[@]}' '$pnfs >> $ongodb
-  echo -e "${GREEN}[btask] INFO :${DEF} The following task has been started: "$taskName"#"$taskID
-  echo -e "${GREEN}[btask] INFO :${DEF} composed of subtask : "${vJobID[@]}
+  echo -e "${GREEN}[btask] INFO :${DEF} The following task has been started: ${YEL}$taskName#$taskID${DEF}"
+  echo -e "${GREEN}[btask] INFO :${DEF} composed of subtask : ${YEL}${vJobID[@]}${DEF}"
 }
 
 
@@ -372,6 +377,21 @@ make_autofilelist(){
   
   
 }
+
+hadd_all(){
+  get_tasks
+  for job in $joblist ; do
+    job=`echo $job | sed "s:;: :g"`
+    get_para_from_db
+    echo -e "------------------------- Task : $taskFullName  ----------------------------"
+    taskname=$taskFullName
+    make_hadd_job
+  done
+}
+
+
+
+
 
 make_hadd_job(){
 
@@ -562,60 +582,7 @@ submit_jobs(){
 }
 
 
-get_status_new(){
-
-  if [ "$taskname" == "NULL" ] ; then
-    joblist=`( cat $ongodb | sed "s: :;:g")` 
-  else
-    joblist=$( cat $ongodb | grep "`echo $taskname|sed 's:#: :'`"| sed "s: :;:g")  
-  fi
-
-  if [ ! -z "$joblist" ] ; then
-    if [ $statusVerbose -eq 1 ] ; then
-      echo -e "Job ID               Username Queue    Jobname          SessID NDS   TSK Memory Time  S Time "
-      echo -e "-------------------- -------- -------- ---------------- ------ ----- --- ------ ----- - -----"
-    fi
-  else
-    echo -e "${GREEN}[btask] INFO :${DEF} get_status No active task"
-  fi
-
-  ALLJOBDONE=1
-
-  for job in $joblist ; do
-    job=`echo $job | sed "s:;: :g"` 
-  
-    get_para_from_db
-    
-    if [ $statusVerbose -eq 1 ] ; then
-      echo -e "------------------------- Task : $taskFullName  ----------------------------"
-    fi
-        
-    for i in `seq 0 $( expr $nJobs - 1 )` ; do
-      testFile="${sandboxes[$i]}/OutputSandbox.tgz"
-      res=`(qstat -u $USER localgrid@cream01 | grep  ' '"${taskids[$i]}"' ')` 
-      if [ ! -z "$res" ]; then
-        if [ $statusVerbose -eq 1 ] ; then 
-          echo -e "$res"
-        fi
-        ALLJOBDONE=0
-        
-      else
-        res=`(ls $testFile 2>&1)`
-        if [ $statusVerbose -eq 1 ] ; then
-          if [ $pnfs -eq 0 ];then
-            echo -e ${taskids[$i]}" DONE -> File: "$res
-          else
-            echo -e ${taskids[$i]}" DONE -> File on pnfs: "`ls $pnfsdir${sandboxes[$i]} 2>&1`
-          fi
-        fi
-      fi
-    done
-  done
-
-}
-
-
-kill_jobs_new(){
+kill_jobs(){
 
   get_tasks
 
@@ -653,7 +620,7 @@ kill_jobs_new(){
 
 } 
 
-get_out_new(){
+get_out(){
 
   get_tasks
 
@@ -668,7 +635,7 @@ get_out_new(){
     fi
       
     echo -e "${GREEN}[btask] INFO :${DEF} Retrieving task: "$taskFullName 
-    echo -e '	  ==> log files are in '$taskDir
+    echo -e "	  ==> log files are in ${YEL}$taskDir${DEF}"
   
     # Go to outDir 
   
@@ -685,7 +652,7 @@ get_out_new(){
   
     # Loop over SandBoxes 
     for i in `seq 0 $( expr $nJobs - 1 )` ; do
-      echo -e "${GREEN}[btask] INFO :${DEF} Retrieving task: "$taskFullName " job: "${taskids[$i]} 
+      echo -e "${GREEN}[btask] INFO :${DEF} Retrieving task $taskFullName   , job ${taskids[$i]}" 
   
       if [ "$tag" == "NULL" ] ; then
         tagID=$taskId
@@ -731,7 +698,7 @@ get_out_new(){
             dccp $pnfsdir${sandboxes[$i]}/$file ../$outfile &> /dev/null
           fi
         	     
-          echo -e '		 '"$outDir/$outfile"
+          echo -e "		 ${YEL}$outDir/$outfile${DEF}"
         done
       fi
       
@@ -869,7 +836,7 @@ fi # end [ $submit -eq 1 ]
 
 if [ $jkill  -eq 1 ] ; then
 
-  kill_jobs_new
+  kill_jobs
 
 fi # end [ $jkill  -eq 1 ]
 
@@ -894,7 +861,7 @@ fi # end [ $status -eq 1 ]
 
 if [ $getout -eq 1 ] ; then
 
-  get_out_new
+  get_out
 
 fi # end [ $getout -eq 1 ] 
 
@@ -902,8 +869,12 @@ fi # end [ $getout -eq 1 ]
 
 if [ $addroot -eq 1 ] ; then
 
-  make_hadd_job
-
+  if [ "$taskname" == "all" ];then
+    hadd_all
+  else
+    make_hadd_job
+  fi
+  
 fi # end [ $addroot -eq 1 ]
 
 
