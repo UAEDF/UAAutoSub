@@ -104,18 +104,19 @@ ListOut=`(echo $ListOut | sed "s:\"::g")`
 Exec=$Executable
 
 cp /dev/null $subfile
-echo "#!/bin/bash"                           >> $subfile
-echo "cd /scratch"                           >> $subfile
-echo "mkdir /scratch/$jobid"                 >> $subfile
-echo "cd /scratch/$jobid"                    >> $subfile   
-echo "cp $InputSandbox ."                    >> $subfile
-echo "tar xzf InputSandbox.tgz"              >> $subfile
-echo "$Exec"                                 >> $subfile
+echo "#!/bin/bash"                           		>> $subfile
+echo "cd /scratch"                          		>> $subfile
+echo "mkdir /scratch/$jobid"                 		>> $subfile
+echo "cd /scratch/$jobid"                    		>> $subfile   
+echo 'export LD_LIBRARY_PATH=`pwd`:$LD_LIBRARY_PATH'	>> $subfile   
+echo "cp $InputSandbox ."                    		>> $subfile
+echo "tar xzf InputSandbox.tgz"              		>> $subfile
+echo "$Exec"                                 		>> $subfile
 echo "echo ----------------------- List of File at the end on grid node: ">> $subfile
-echo "ls                    "                >> $subfile 
+echo "ls                    "                		>> $subfile 
 if [ $pnfs -eq 0 ];then
-  echo "tar czf OutputSandbox.tgz $ListOut"    >> $subfile
-  echo "mv OutputSandbox.tgz $SandboxDir"      >> $subfile
+  echo "tar czf OutputSandbox.tgz $ListOut"    		>> $subfile
+  echo "mv OutputSandbox.tgz $SandboxDir"      		>> $subfile
 else
   echo "mkdir -p /pnfs/iihe/cms/store/user/$USER/$SandboxDir"      >> $subfile
   echo "for file in $ListOut;do"      >> $subfile
