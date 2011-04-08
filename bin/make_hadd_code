@@ -1,0 +1,120 @@
+#!/bin/bash
+
+if [ $# -ne 1 ];then
+echo 'please specify a config_file with:
+hadd_dir        basedir
+hadd_inc        space-separated list of class includes
+hadd_src        space-separated list of class src
+template_inst   list of template instantiations'
+exit
+fi
+
+conf_file=$1
+name_of_output_code="makeHadd.sh"
+name_of_linkdef="haddLinkDef.h"
+
+
+#Getting variables from conf_file
+hadd_dir="`cat $conf_file | grep hadd_dir | sed 's:hadd_dir::'`"
+hadd_inc="`cat $conf_file | grep hadd_inc | sed 's:hadd_inc::'`"
+hadd_src="`cat $conf_file | grep hadd_src | sed 's:hadd_src::'`"
+template_inst="`cat $conf_file | grep template_inst | sed 's:template_inst::'`"
+
+
+########################################################
+#                  output code.sh
+
+echo '
+makeLib(){
+echo "Making Library"
+g++ -shared -o libHaddTweak.so `root-config --ldflags` `root-config --cflags --glibs` eventdict.cxx $SRC
+
+}
+
+makeDic(){
+echo "Making Dictionnary"
+rootcint -f eventdict.cxx -c -p $LIBS '$name_of_linkdef'
+
+}
+
+makeCode(){
+echo "Making hadd_tweak code"
+g++ hadd_tweak.cxx -o hadd_tweak `root-config --cflags --glibs` \
+  -L`pwd` -lHaddTweak
+
+}
+'> $name_of_output_code 
+
+lib='LIBS="'
+for file in $hadd_inc;do
+  lib=`echo $lib "$file"`
+done
+lib=`echo $lib "\""`
+
+echo -e "\n\n$lib" >> $name_of_output_code
+
+
+lib='SRC="'
+for file in $hadd_src;do
+  lib=`echo $lib "$file"`
+done
+lib=`echo $lib "\""`
+
+echo -e "\n$lib" >> $name_of_output_code
+
+echo -e "\n"'
+###################
+### READ option ###
+###################
+
+for xopt in $* ; do
+  case $xopt in
+    -dic)   makeDic  ; shift ;;
+    -lib)   makeLib  ; shift ;;
+    -hadd)  makeCode ; shift ;;
+    *)  echo "Only -dic -lib -hadd in this order !" ;;
+  esac
+done
+' >> $name_of_output_code
+
+chmod u+x $name_of_output_code
+
+#cat "$name_of_output_code"
+
+
+
+########################################################
+#                  LinkDef.h
+
+echo -e "\n"'#ifdef __MAKECINT__
+
+#pragma link off all globals;
+#pragma link off all classes;
+#pragma link off all functions;
+#pragma link C++ nestedclasses;
+
+' > $name_of_linkdef
+
+
+for file in $hadd_inc;do
+  file=`echo $file|sed 's:^.*/::'|sed 's:.h::'`
+  if [ `echo $template_inst|grep -e "$file" -c` -eq 1 ];then
+    inst=$(echo $template_inst|sed "s: :\n:"|grep $file)
+    for lib in $inst;do
+      echo '#pragma link C++ class '"$lib+;" >> $name_of_linkdef
+    done
+  else
+    echo '#pragma link C++ class '"$file+;" >> $name_of_linkdef
+  fi
+
+
+done
+
+
+
+
+echo -e "\n"'
+#endif' >> $name_of_linkdef
+
+
+#cat $name_of_linkdef
