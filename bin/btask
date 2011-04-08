@@ -47,6 +47,7 @@ statusVerbose=0
 sourceroot_command='source /localgrid/xjanssen/root_5.26.00e_iihe_default_dcap/root/bin/thisroot.sh'
 pnfsdir="/pnfs/iihe/cms/store/user/$USER/"
 
+
 btask_config=`dirname $0`'/../config/btask.conf'
 workdir=$HOME'/'`( cat $btask_config | grep workdir | awk '{print $2}' )`
 if [ ! -d $workdir ] ; then
@@ -70,6 +71,9 @@ fi
 sdbdir=$(eval echo $( cat $btask_config | grep sandboxdir | awk '{print $2}' ))
 
 hadd_code=$(eval echo $( cat $btask_config | grep hadd_code | awk '{print $2}' ))
+hadd_dir="`cat $btask_config | grep hadd_dir | sed 's:hadd_dir::'`"
+hadd_inc="`cat $btask_config | grep hadd_inc | sed 's:hadd_inc::'`"
+hadd_src="`cat $btask_config | grep hadd_src | sed 's:hadd_src::'`"
 
 
 # ---------------------------- Functions ---------------------------------------
@@ -226,7 +230,7 @@ print_task_status(){
       if [ `echo $res|grep -e " Q " -c` -eq 1 ];then
         echo -e "${RED}$res${DEF}"
       else
-        echo -e "${YEL}$res${YEL}"
+        echo -e "${YEL}$res${DEF}"
       fi
     else
       res=`(ls $testFile 2>&1)`
@@ -503,11 +507,12 @@ make_hadd_job(){
   inList_hadd="conf_$taskId.txt"
   execBase_hadd="$sourceroot_command $makeDIR"
   if [ $hadd_tweak -eq 1 ];then
-    inDir_hadd="$inDir/"
+    inDir_hadd="$hadd_dir"
     cd $inDir_hadd
-    inList_hadd='hadd_tweak.cxx , plugins/* , macro/*.h , macro/*.C'
-    execBase_hadd="$sourceroot_command $makeDIR ; cd plugins/ ; ./makeHadd.sh -dic -lib -hadd"
-    cp $hadd_code $inDir_hadd/plugins/hadd_tweak.cxx
+    make_hadd_code $btask_config
+    inList_hadd='hadd_tweak.cxx , makeHadd.sh , haddLinkDef.h , '`echo $hadd_src $hadd_inc|sed 's: :,:g'`
+    execBase_hadd="$sourceroot_command $makeDIR ;  ./makeHadd.sh -dic -lib -hadd"
+    cp $hadd_code $inDir_hadd/.
   fi
   
   
