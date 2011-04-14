@@ -173,10 +173,9 @@ get_specific_task(){
     echo -e "${RED}[btask] ERROR :${DEF} Please specify a task name using -task <taskname>"
     exit
   else
-    job=$( cat $ongodb | grep "`echo $taskname|sed 's:#: :'`")  
+    job=$( cat $ongodb |sed 's: :#:g'| grep "$taskname#"|sed 's:#: :g')  
   fi
   
-
   if [ -z "$job" ] ; then
     echo -e "${RED}[btask] ERROR :${DEF} Task $taskname not found."
     exit
@@ -194,7 +193,7 @@ get_tasks(){
   if [ "$taskname" == "NULL" ] ; then
     joblist=`( cat $ongodb | sed "s: :;:g")` 
   else
-    joblist=$( cat $ongodb | grep "`echo $taskname|sed 's:#: :'`"| sed "s: :;:g")  
+    joblist=$( cat $ongodb | sed "s: :;:g "| grep "`echo $taskname|sed 's:#:;:'`")  
   fi
   
   if [ -z "$joblist" ] ; then
@@ -299,8 +298,12 @@ get_task_status(){
 is_task_finished(){
   echo -e "\n${GREEN}[btask] INFO :${DEF} Checking task: "$taskFullName
   if [ `get_task_status`  -eq 0 ] ; then
-    echo -e "${RED}[btask] ERROR :${DEF} Not all jobs are done for task: "$taskFullname
+    echo -e "${RED}[btask] ERROR :${DEF} Not all jobs are done for task: "$taskFullName
   fi
+}
+
+is_in_db(){
+  echo `cat $ongodb | grep "$1 $2" -c`
 }
 
 make_autofilelist(){
@@ -387,8 +390,15 @@ hadd_all(){
   for job in $joblist ; do
     job=`echo $job | sed "s:;: :g"`
     get_para_from_db
-    echo -e "------------------------- Task : $taskFullName  ----------------------------"
+    
+    #skip hadd jobs
+    if [ `echo $taskId|grep hadd -c` -eq 1 ];then
+      continue
+    fi
+    
+    echo -e "\n------------------------- Task : ${BLUE}$taskFullName${DEF}  ----------------------------"
     taskname=$taskFullName
+    
     make_hadd_job
   done
 }
@@ -401,6 +411,11 @@ make_hadd_job(){
 
   get_specific_task
   
+  if [ `is_in_db $taskName hadd_$taskId` -eq 1 ];then
+    echo -e "${GREEN}[btask] INFO :${DEF} hadd already done on this task. Please kill the hadd job before re-running it."
+    return
+  fi 
+    
   outputfiles=( '' )
   tarFile="OutputSandbox.tgz"  
   
@@ -759,14 +774,27 @@ resubmit(){
     #checking if $tarFile is present
     if [[ ! -f $tarFile && $pnfs -eq 0 ]] || [[ $pnfs -gt 0  && `ls $pnfsdir${sandboxes[$i]}|wc -l` -eq 0 ]];then
       echo -e "${CYAN}[btask] WARNING :${DEF} No output files were present for job "${taskids[$i]}
-      echo -e '	    ==> resubmitting the job '
+      echo -e "	    ==> resubmitting the job ${YEL}${taskids[$i]}${DEF}"
       qsub -N ${taskids[$i]} -q localgrid@cream01 -o `pwd`/stdout_retry -e `pwd`/stderr_retry qsub.sh > /dev/null
     fi
   done
 
 }
 
+resubmit_all(){
 
+ get_tasks
+
+  for job in $joblist ; do
+    job=`echo $job | sed "s:;: :g"` 
+    get_para_from_db
+    
+    echo -e "\n------------------------- Task : ${BLUE}$taskFullName${DEF}  ----------------------------"
+    taskname=$taskFullName
+    
+    resubmit
+  done
+}
 
 
 
@@ -849,7 +877,11 @@ fi # end [ $jkill  -eq 1 ]
 
 if [ $resubmit -eq 1 ] ; then
 
-  resubmit
+  if [ "$taskname" == "NULL" ];then
+    resubmit_all
+  else
+    resubmit
+  fi
 
 fi # end [ $resubmit -eq 1 ] 
 
@@ -874,7 +906,7 @@ fi # end [ $getout -eq 1 ]
 
 if [ $addroot -eq 1 ] ; then
 
-  if [ "$taskname" == "all" ];then
+  if [ "$taskname" == "NULL" ];then
     hadd_all
   else
     make_hadd_job
