@@ -8,30 +8,7 @@
 #
 ########################################################################
 
-
-### Usage:
-
-Manual=$( cat <<SETVAR
- 
- options: btask -submit <config>  : Submit job based on <config> file
-          btask -status           : Get status of all jobs
-          btask -get              : Retrieve output of all terminated jobs
-          btask -kill             : Kill all jobs
-                -tag  <tag>       : Replace the random job tag by <tag>
-                                    Apply it together with -submit or -get
-                -task <taskname>  : Adding to -status, -get or -hadd 
-                                    restrict action to a single <taskname>
-          btask -help             : Print this help message 
-
-SETVAR
-)
-
-# btask -resubmit all     : Resubmit all jobs
-# btask -resubmit <jobid> : Resubmit jobs <jobid> (comma separated list) 
-# btask -hadd <taskname>  : Add all root files of a finished <taskname>
-#                     -get will retrieve the added root file
-
-# ---------------------------- Variables ---------------------------------------
+###  COLORS
 
 
 BLUE='\033[1;34m'
@@ -41,6 +18,45 @@ GREEN='\033[1;32m'
 YEL='\033[1;33m'
 DEF='\033[0;m'
 
+
+
+### Usage:
+
+Manual=`echo -e '
+'"${BLUE}Possibilities:${DEF}"'
+
+   btask '"${RED}-submit${DEF} <myconfile> [${CYAN}-tag${DEF} <mytag>] [${CYAN}-pnfs${DEF}]"'
+   btask '"${RED}-resubmit${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>]"'
+   btask '"${RED}-s${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>]"'
+   btask '"${RED}-status${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>]"'
+   btask '"${RED}-hadd${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>] [${CYAN}-def${DEF} <y/n>]"'
+   btask '"${RED}-hadd_tweak${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>] [${CYAN}-def${DEF} <y/n>]"'
+   btask '"${RED}-get${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>] [${CYAN}-tag${DEF} <mytag>] [${CYAN}-def${DEF} <y/n>]"'
+   btask '"${RED}-kill${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>]"'
+   btask '"${RED}-help${DEF} "'
+
+'"${BLUE}Description:${DEF}"'
+For more details see '"${BLUE}https://twiki.cern.ch/twiki/bin/viewauth/CMS/UATools#Running_the_config_file${DEF}"'
+'"\n    ${RED}submit ${DEF}"'    : to start submission of the task specified in the config file.
+'"\n    ${CYAN}tag ${DEF}"'       : (optional) to have a user specified tag replacing the unique ID automatically created.
+'"\n    ${CYAN}pnfs ${DEF}"'      : (optional) stores temporarily outputfiles on /pnfs rather than /localgrid, to circumvent the 50GB space-limit of localgrid.
+'"\n    ${RED}resubmit ${DEF}"'  : to resubmit subjobs with no outputs.
+'"\n    ${RED}s ${DEF}"'         : to check the status of your tasks. Short output.
+'"\n    ${RED}status ${DEF}"'    : same as -s option, but with long output. 
+'"\n    ${RED}hadd ${DEF}"'      : In case job has been parallelized specifying autoFiles & autoNJobs in the config file , will launch a new job to automatically
+                 concatenate all root output files from your parallelized jobs. To be done before get.
+'"\n    ${RED}hadd_tweak ${DEF}"': Same as -hadd, but recompiles hadd.cxx code with your libraries. Useful for instance to merge TOperation objects. 
+                 Need to provide details of classes to hadd in config/btask.conf.
+'"\n    ${RED}get ${DEF}"'       : Will retrieve for all finished tasks all outputs specified in outList and put them in outDir . 
+                 Files will have name : myfilename_taskname_tag.extension. Will clean by default the tasks.
+'"\n    ${RED}kill ${DEF}"'      : Will kill all jobs.
+'"\n    ${CYAN}t/task ${DEF}"'    : (optional) jointly used with -status , -resubmit , -hadd , -get , -kill , will execute the option only for the given task. 
+'"\n    ${CYAN}def ${DEF}"'       : (optional) will answer by default to questions. Takes y [for yes] or n [for no] as parameter 
+'`
+
+
+
+# ---------------------------- Variables ---------------------------------------
 
 declare -a vJobID
 statusVerbose=0
@@ -89,6 +105,7 @@ UsageCfg()
 }
 
 
+#################################################################################################################################
 print_config()
 {
   echo "taskName   = "$taskName
@@ -105,6 +122,7 @@ print_config()
   fi
 }
 
+#################################################################################################################################
 parse_config()
 {
   #echo "--> Parsing cfg file: "$cfg
@@ -128,6 +146,7 @@ parse_config()
   return 1
 }
 
+#################################################################################################################################
 check_config()
 {
   autoON=0
@@ -156,6 +175,7 @@ check_config()
   fi
 }
 
+#################################################################################################################################
 mkdir_task(){
   if [ "$tag" == "NULL" ] ; then 
     taskID=`(mktemp -p $workdir -t .XXX | awk -F'.' '{print $2}')`
@@ -168,6 +188,7 @@ mkdir_task(){
   mkdir -p $taskSdb
 }
 
+#################################################################################################################################
 get_specific_task(){
   if [ "$taskname" == "NULL" ] ; then
     echo -e "${RED}[btask] ERROR :${DEF} Please specify a task name using -task <taskname>"
@@ -189,6 +210,7 @@ get_specific_task(){
   fi
 }
 
+#################################################################################################################################
 get_tasks(){
   if [ "$taskname" == "NULL" ] ; then
     joblist=`( cat $ongodb | sed "s: :;:g")` 
@@ -202,6 +224,7 @@ get_tasks(){
   fi
 }
 
+#################################################################################################################################
 print_status(){
   echo -e "${BLUE}#CPU      Free    Total Jobs      Running Waiting ComputingElement${DEF}    "
   echo -e "----------------------------------------------------------------------"
@@ -220,8 +243,9 @@ print_status(){
   done
 }
 
+#################################################################################################################################
 print_task_status(){
-  echo -e "------------------------- Task : ${BLUE}$taskFullName${DEF}  ----------------------------"
+  echo -e "-------------------------  ${BLUE}$taskFullName${DEF}  ----------------------------"
   for i in `seq 0 $( expr $nJobs - 1 )` ; do
     testFile="${sandboxes[$i]}OutputSandbox.tgz"
     res=`(qstat -u $USER localgrid@cream01 | grep  ' '"${taskids[$i]}"' ')` 
@@ -242,6 +266,99 @@ print_task_status(){
   done
 }
 
+#################################################################################################################################
+print_status_fast(){
+  
+  get_tasks
+    
+  #echo -e "${BLUE}taskName \t\t ${GREEN}nFinished \t ${RED}nCrashed \t ${YEL}nRunning \t ${CYAN}nQueued${DEF}"
+  printf "${BLUE}%-27s ${GREEN}%-10s  ${RED}%-10s  ${YEL}%-10s  ${CYAN}%-10s ${DEF} %s \n" "taskFullName" "Finished" "Crashed" "Running" "Queued" "Total"
+  
+  for job in $joblist ; do
+    job=`echo $job | sed "s:;: :g"`
+    get_para_from_db
+    print_task_status_fast
+  done
+}
+
+#################################################################################################################################
+print_task_status_fast(){
+  n_finished=0
+  n_crashed=0
+  n_running=0
+  n_queued=0
+  
+  for i in `seq 0 $( expr $nJobs - 1 )` ; do
+    stat=`get_job_status`
+    #echo "$i  $stat"
+    case $stat in
+      -2 ) n_queued=`expr $n_queued + 1`     ;;
+      -1 ) n_running=`expr $n_running + 1`   ;;
+       0 ) n_crashed=`expr $n_crashed + 1`   ;;
+       1 ) n_finished=`expr $n_finished + 1` ;;
+    esac
+  done
+  #echo -e "${BLUE}%30$taskFullName${DEF} \t\t ${GREEN}$n_finished/$nJobs \t ${RED}$n_crashed/$nJobs \t ${YEL}$n_running/$nJobs \t ${CYAN}$n_queued/$nJobs ${DEF}"
+  printf "${BLUE}%-30s ${GREEN}%-10s  ${RED}%-10s  ${YEL}%-10s  ${CYAN}%-9s  ${DEF}%s \n" "$taskFullName" "$n_finished" "$n_crashed" "$n_running" "$n_queued" "$nJobs"
+  #printf "${BLUE}%30$taskFullName${DEF} \t\t ${GREEN}$n_finished/$nJobs \t ${RED}$n_crashed/$nJobs \t ${YEL}$n_running/$nJobs \t ${CYAN}$n_queued/$nJobs ${DEF}"
+}
+
+
+#################################################################################################################################
+get_task_status(){
+  ALLJOBDONE=1
+  for i in `seq 0 $( expr $nJobs - 1 )` ; do
+    res=`(qstat -u $USER localgrid@cream01 | grep  ' '"${taskids[$i]}"' ')` 
+    if [ ! -z "$res" ]; then
+      ALLJOBDONE=0
+    fi
+  done
+  echo $ALLJOBDONE
+}
+
+
+#################################################################################################################################
+get_job_status(){
+  res=`(qstat -u $USER localgrid@cream01 | grep  ' '"${taskids[$i]}"' ')` 
+  if [ ! -z "$res" ]; then
+    if [ `echo $res|grep -e " Q " -c` -eq 1 ];then
+      echo -e "-2"
+    else
+      echo -e "-1"
+    fi
+  else
+    testFile="${sandboxes[$i]}OutputSandbox.tgz"
+    res=`(ls $testFile 2>&1)`
+    if [ $pnfs -eq 0 ];then
+      if [ -f $testFile ];then
+        echo -e "1"
+      else
+        echo -e "0"
+      fi
+    else
+      if [ ! -d $pnfsdir${sandboxes[$i]} ] || [ `ls $pnfsdir${sandboxes[$i]}|wc -l` -eq 0 ];then
+        echo -e "0"
+      else
+        echo -e "1"
+      fi
+    fi
+  fi
+}
+
+#################################################################################################################################
+is_task_finished(){
+  echo -e "\n${GREEN}[btask] INFO :${DEF} Checking task: "$taskFullName
+  if [ `get_task_status`  -eq 0 ] ; then
+    echo -e "${RED}[btask] ERROR :${DEF} Not all jobs are done for task: "$taskFullName
+  fi
+}
+
+#################################################################################################################################
+is_in_db(){
+  echo `cat $ongodb | grep "$1 $2" -c`
+}
+
+#################################################################################################################################
 get_para_from_db(){
   taskName=`echo $job|awk '{print $1}'`
   taskId=`echo $job|awk '{print $2}'`
@@ -267,6 +384,7 @@ get_para_from_db(){
 }
 
 
+#################################################################################################################################
 add_task_to_db(){
   cp /dev/null $taskDir/$taskName.cfg
   print_config >> $taskDir/$taskName.cfg
@@ -276,6 +394,7 @@ add_task_to_db(){
 }
 
 
+#################################################################################################################################
 remove_task_from_db(){
   echo -e "${GREEN}[btask] INFO :${DEF} Removing task: "$taskFullName
   cat $ongodb | grep    "$taskName $taskId" >> $donedb 
@@ -284,28 +403,7 @@ remove_task_from_db(){
   mv  $tmpFile $ongodb
 }
 
-get_task_status(){
-  ALLJOBDONE=1
-  for i in `seq 0 $( expr $nJobs - 1 )` ; do
-    res=`(qstat -u $USER localgrid@cream01 | grep  ' '"${taskids[$i]}"' ')` 
-    if [ ! -z "$res" ]; then
-      ALLJOBDONE=0
-    fi
-  done
-  echo $ALLJOBDONE
-}
-
-is_task_finished(){
-  echo -e "\n${GREEN}[btask] INFO :${DEF} Checking task: "$taskFullName
-  if [ `get_task_status`  -eq 0 ] ; then
-    echo -e "${RED}[btask] ERROR :${DEF} Not all jobs are done for task: "$taskFullName
-  fi
-}
-
-is_in_db(){
-  echo `cat $ongodb | grep "$1 $2" -c`
-}
-
+#################################################################################################################################
 make_autofilelist(){
 
   if [ $autoON -eq 0 ];then
@@ -385,6 +483,7 @@ make_autofilelist(){
   
 }
 
+#################################################################################################################################
 hadd_all(){
   get_tasks
   for job in $joblist ; do
@@ -396,7 +495,7 @@ hadd_all(){
       continue
     fi
     
-    echo -e "\n------------------------- Task : ${BLUE}$taskFullName${DEF}  ----------------------------"
+    echo -e "\n------------------------- ${BLUE}$taskFullName${DEF}  ----------------------------"
     taskname=$taskFullName
     
     make_hadd_job
@@ -407,12 +506,13 @@ hadd_all(){
 
 
 
+#################################################################################################################################
 make_hadd_job(){
 
   get_specific_task
   
   if [ `is_in_db $taskName hadd_$taskId` -eq 1 ];then
-    echo -e "${GREEN}[btask] INFO :${DEF} hadd already done on this task. Please kill the hadd job before re-running it."
+    echo -e "${CYAN}[btask] WARNING :${DEF} Task ${YEL}$taskName#hadd_$taskId${DEF} already exists. Please kill this hadd job before re-running it."
     return
   fi 
     
@@ -437,20 +537,25 @@ make_hadd_job(){
       tar xzf $tarFile
     fi
     
+    #keeping the number of a
+    #sandbox with output files
+    goodSb=$i
+    
   done
   
   if [ $missingoutputs -gt 0 ];then
     echo -e "${GREEN}[btask] INFO :${DEF} You should try to resubmit the task with btask -resubmit -task "$taskFullName
-    read -p "        ==> Do you want to continue with the hadd job ? [y/n] [default=y]  " a 
+    echo -en "        ==> Do you want to continue with the hadd job ? [y/n] [default=y]  "
+    if [ $def -eq 0 ];then read a ; else echo "y" ; a="y"; fi
     case $a in n ) exit ;; esac
   fi
   
   #making list of output files
   outputfiles=''
   if [ $pnfs -eq 0 ] ;then
-    fileList=`(tar tzf ${sandboxes[$i]}/$tarFile)`
+    fileList=`(tar tzf ${sandboxes[$goodSb]}/$tarFile)`
   else
-    fileList=`ls $pnfsdir${sandboxes[$i]}`
+    fileList=`ls $pnfsdir${sandboxes[$goodSb]}`
   fi
   
   for file in $fileList ; do
@@ -460,7 +565,9 @@ make_hadd_job(){
     fi
   done
   
-  if [ ${#outputfiles[@]} -eq 0 ];then
+  echo "N :${outputfiles}:"
+  
+  if [ "${outputfiles}" == '' ];then
     echo -e "${CYAN}[btask] WARNING :${DEF} no root ouput files were created by the job. Nothing to hadd ..."
     exit 
   fi
@@ -501,8 +608,9 @@ make_hadd_job(){
     for iSandBox in ${sandboxes[@]};do
       if [[ ! -f $iSandBox/$iOutputFile && -f $iSandBox/$tarFile && $pnfs -eq 0 ]] || [[ $pnfs -gt 0 && ! -f $pnfsdir$iSandBox/$iOutputFile ]] ;then
         echo -e "${CYAN}[btask] WARNING :${DEF} subjob managed to retrieve output, but problem arrised when untaring "$iOutputFile' from '$iSandBox
-	echo -e '                  Will not run hadd on this subjob'
-        read -p "        ==> Do you want to continue with the hadd job ? [y/n] [default=y]  " a 
+	echo -e "                  Will not run hadd on this subjob"
+	echo -en "        ==> Do you want to continue with the hadd job ? [y/n] [default=y]  "
+	if [ $def -eq 0 ];then read a ; else echo "y" ; a="y"; fi
         case $a in n ) exit ;; esac
 	continue
       fi
@@ -542,6 +650,16 @@ make_hadd_job(){
   echo 'execBase = '$execBase_hadd			>> conf_$taskId.txt
   echo 'execMult = '`echo $execmult|sed "s#ff ;##"`	>> conf_$taskId.txt
   
+  if [ "$execmult" == "ff" ];then
+    echo -e "${RED}[btask] ERROR :${DEF} Did not manage to make proper hadd command. See config below:"
+    echo -e "--------------"
+    cat conf_$taskId.txt
+    echo -e "--------------"
+    exit
+  fi
+  
+  
+  
   echo -e "\n${GREEN}[btask] INFO :${DEF} Launching hadd job hadd_$taskId"
   echo -e "==========================================================================================\n"
   
@@ -552,6 +670,7 @@ make_hadd_job(){
 
 
 
+#################################################################################################################################
 submit_jobs(){
 
   #saving existing filelist, to restore after jobs are launched
@@ -602,6 +721,7 @@ submit_jobs(){
 }
 
 
+#################################################################################################################################
 kill_jobs(){
 
   get_tasks
@@ -640,6 +760,7 @@ kill_jobs(){
 
 } 
 
+#################################################################################################################################
 get_out(){
 
   get_tasks
@@ -666,9 +787,10 @@ get_out(){
     cd $tmpdir
   
     clean=1
-    echo -en "${GREEN}[btask] INFO :${DEF}"
-    read -p " Do you want to clean this task ? [y/n] [default=y]  " a 
+    echo -en "${GREEN}[btask] INFO :${DEF} Do you want to clean this task ? [y/n] [default=y]  "
+    if [ $def -eq 0 ];then read a ; else echo "y" ; a="y"; fi
     case $a in n ) clean=0 ;; esac
+    
   
     # Loop over SandBoxes 
     for i in `seq 0 $( expr $nJobs - 1 )` ; do
@@ -732,8 +854,8 @@ get_out(){
       errFileOut=$taskDir"/stderr_$i"
       outFileOut=$taskDir"/stdout_$i"
   
-      cp $errFileIn $errFileOut
-      cp $outFileIn $outFileOut
+      cp $errFileIn* $errFileOut
+      cp $outFileIn* $outFileOut
     
   
       # Remove SubTask SandBox
@@ -763,6 +885,7 @@ get_out(){
   
 }
 
+#################################################################################################################################
 resubmit(){
 
   get_specific_task
@@ -781,6 +904,7 @@ resubmit(){
 
 }
 
+#################################################################################################################################
 resubmit_all(){
 
  get_tasks
@@ -789,7 +913,7 @@ resubmit_all(){
     job=`echo $job | sed "s:;: :g"` 
     get_para_from_db
     
-    echo -e "\n------------------------- Task : ${BLUE}$taskFullName${DEF}  ----------------------------"
+    echo -e "\n-------------------------  ${BLUE}$taskFullName${DEF}  ----------------------------"
     taskname=$taskFullName
     
     resubmit
@@ -797,11 +921,14 @@ resubmit_all(){
 }
 
 
+#################################################################################################################################
 
 # ----------------------------  Parsing  Arguments  ----------------------------
 
 submit=0
 status=0
+fast=0
+def=0
 getout=0
 jkill=0
 resubmit=0
@@ -816,14 +943,17 @@ for arg in $* ; do
   case $arg in
     -submit)      submit=1   ; option=$2   ; shift ; shift ;;
     -status)      status=1                         ; shift ;;
+    -s)           status=1   ; fast=1              ; shift ;;
     -get)         getout=1                         ; shift ;;
     -kill)        jkill=1                          ; shift ;;
     -resubmit)    resubmit=1 			   ; shift ;;
     -hadd)        addroot=1  			   ; shift ;;
     -hadd_tweak)  addroot=1 ; hadd_tweak=1	   ; shift ;;
-    -task)                     taskname=$2 ; shift ; shift ;;
-    -tag)                      tag=$2      ; shift ; shift ;;
+    -task)                    taskname=$2  ; shift ; shift ;;
+    -t)                       taskname=$2  ; shift ; shift ;;
+    -tag)                     tag=$2       ; shift ; shift ;;
     -pnfs)        pnfs=1 			   ; shift ;;
+    -def)         def=1 			   ; shift ;;
     -help)        Usage ;;
     *) ;;
   esac
@@ -890,7 +1020,11 @@ fi # end [ $resubmit -eq 1 ]
 
 if [ $status -eq 1 ] ; then
 
-  print_status
+  if [ $fast -eq 0 ];then
+    print_status
+  else
+    print_status_fast
+  fi
 
 fi # end [ $status -eq 1 ]
 
