@@ -117,8 +117,11 @@ print_config()
   echo "execMult   = "$execMult
   if [ $autoON != 0 ];then
     echo "autoFiles           = $autoFiles"
-    echo "autoNJobs           = $autoNJobs"
-    echo "autoNfiles_per_jobs = $autoNfiles_per_jobs"
+    if [ $autoNJobs -ne 0 ];then
+      echo "autoNJobs           = $autoNJobs"
+    else
+      echo "autoNfiles_per_jobs = $autoNfiles_per_jobs"
+    fi
   fi
 }
 
@@ -177,11 +180,17 @@ check_config()
 
 #################################################################################################################################
 mkdir_task(){
+  taskID=`(mktemp -p $workdir -t .XXX | awk -F'.' '{print $2}')`
+  taskTag=$tag
   if [ "$tag" == "NULL" ] ; then 
-    taskID=`(mktemp -p $workdir -t .XXX | awk -F'.' '{print $2}')`
-  else
-    taskID=$tag
-  fi 
+    taskTag=$taskID
+  fi
+  
+  if [ `is_in_db $taskName $taskTag` -eq 1 ];then
+    echo -e "${RED}[btask] ERROR :${DEF} A task with tag ${YEL}$taskTag${DEF} already exists. Please specify another tag, or remove the -tag option, or kill the existing task."
+    exit
+  fi
+  
   taskDir=$workdir/$taskName'_'$taskID
   taskSdb=$sdbdir/$taskName'_'$taskID
   mkdir -p $taskDir
@@ -247,24 +256,25 @@ print_status(){
 print_task_status(){
   echo -e "-------------------------  ${BLUE}$taskFullName${DEF}  ----------------------------"
   for i in `seq 0 $( expr $nJobs - 1 )` ; do
-    testFile="${sandboxes[$i]}OutputSandbox.tgz"
     res=`(qstat -u $USER localgrid@cream01 | grep  ' '"${taskids[$i]}"' ')` 
-    if [ ! -z "$res" ]; then
-      if [ `echo $res|grep -e " Q " -c` -eq 1 ];then
-        echo -e "${RED}$res${DEF}"
-      else
-        echo -e "${YEL}$res${DEF}"
-      fi
+    case `get_job_status` in
+      -2 ) echo -e "${RED}$res${DEF}"  ; continue ;;
+      -1 ) echo -e "${YEL}$res${DEF}"  ; continue ;;
+       0 ) COL=${RED}   ;;
+       1 ) COL=${GREEN} ;;
+    esac
+    
+    testFile="${sandboxes[$i]}OutputSandbox.tgz"
+    res=`(ls $testFile 2>&1)`
+    if [ $pnfs -eq 0 ];then
+      echo -e "${COL}${taskids[$i]} DONE${DEF} -> File: "$res
     else
-      res=`(ls $testFile 2>&1)`
-      if [ $pnfs -eq 0 ];then
-        echo -e "${GREEN}${taskids[$i]} DONE${DEF} -> File: "$res
-      else
-        echo -e "${GREEN}${taskids[$i]} DONE${DEF} -> File on pnfs: "`ls $pnfsdir${sandboxes[$i]} 2>&1`
-      fi
+      echo -e "${COL}${taskids[$i]} DONE${DEF} -> File on pnfs: "`ls $pnfsdir${sandboxes[$i]} 2>&1`
     fi
+      
   done
 }
+
 
 #################################################################################################################################
 print_status_fast(){
@@ -289,9 +299,7 @@ print_task_status_fast(){
   n_queued=0
   
   for i in `seq 0 $( expr $nJobs - 1 )` ; do
-    stat=`get_job_status`
-    #echo "$i  $stat"
-    case $stat in
+    case `get_job_status` in
       -2 ) n_queued=`expr $n_queued + 1`     ;;
       -1 ) n_running=`expr $n_running + 1`   ;;
        0 ) n_crashed=`expr $n_crashed + 1`   ;;
@@ -330,7 +338,7 @@ get_job_status(){
     testFile="${sandboxes[$i]}OutputSandbox.tgz"
     res=`(ls $testFile 2>&1)`
     if [ $pnfs -eq 0 ];then
-      if [ -f $testFile ];then
+      if [ -f $testFile ] && [ `tar tzf $testFile|wc -l` -gt 0 ];then
         echo -e "1"
       else
         echo -e "0"
@@ -361,10 +369,11 @@ is_in_db(){
 #################################################################################################################################
 get_para_from_db(){
   taskName=`echo $job|awk '{print $1}'`
-  taskId=`echo $job|awk '{print $2}'`
-  taskFullName=`echo $taskName"#"$taskId`
-  nJobs=`echo $job|awk '{print $3}'`
-  pnfs=`echo $job|awk '{print $4}'`
+  taskTag=`echo $job|awk '{print $2}'`
+  taskId=`echo $job|awk '{print $3}'`
+  taskFullName=`echo $taskName"#"$taskTag`
+  nJobs=`echo $job|awk '{print $4}'`
+  pnfs=`echo $job|awk '{print $5}'`
   
   taskDir=$workdir/$taskName'_'$taskId
   taskSdb=$sdbdir/$taskName'_'$taskId
@@ -388,8 +397,8 @@ get_para_from_db(){
 add_task_to_db(){
   cp /dev/null $taskDir/$taskName.cfg
   print_config >> $taskDir/$taskName.cfg
-  echo $taskName' '$taskID' '${#vJobID[@]}' '$pnfs >> $ongodb
-  echo -e "${GREEN}[btask] INFO :${DEF} The following task has been started: ${YEL}$taskName#$taskID${DEF}"
+  echo $taskName' '$taskTag' '$taskID'  '${#vJobID[@]}' '$pnfs >> $ongodb
+  echo -e "${GREEN}[btask] INFO :${DEF} The following task has been started: ${YEL}$taskName#$taskTag${DEF}"
   echo -e "${GREEN}[btask] INFO :${DEF} composed of subtask : ${YEL}${vJobID[@]}${DEF}"
 }
 
@@ -397,9 +406,9 @@ add_task_to_db(){
 #################################################################################################################################
 remove_task_from_db(){
   echo -e "${GREEN}[btask] INFO :${DEF} Removing task: "$taskFullName
-  cat $ongodb | grep    "$taskName $taskId" >> $donedb 
+  cat $ongodb | grep    "$taskName $taskTag $taskId" >> $donedb 
   tmpFile=`(mktemp)`
-  cat $ongodb | grep -v "$taskName $taskId" >> $tmpFile
+  cat $ongodb | grep -v "$taskName $taskTag $taskId" >> $tmpFile
   mv  $tmpFile $ongodb
 }
 
@@ -491,7 +500,7 @@ hadd_all(){
     get_para_from_db
     
     #skip hadd jobs
-    if [ `echo $taskId|grep hadd -c` -eq 1 ];then
+    if [ `echo $taskFullName|grep hadd -c` -eq 1 ];then
       continue
     fi
     
@@ -511,8 +520,8 @@ make_hadd_job(){
 
   get_specific_task
   
-  if [ `is_in_db $taskName hadd_$taskId` -eq 1 ];then
-    echo -e "${CYAN}[btask] WARNING :${DEF} Task ${YEL}$taskName#hadd_$taskId${DEF} already exists. Please kill this hadd job before re-running it."
+  if [ `is_in_db $taskName hadd_$taskTag` -eq 1 ];then
+    echo -e "${CYAN}[btask] WARNING :${DEF} Task ${YEL}$taskName#hadd_$taskTag${DEF} already exists. Please kill this hadd job before re-running it."
     return
   fi 
     
@@ -546,8 +555,8 @@ make_hadd_job(){
   if [ $missingoutputs -gt 0 ];then
     echo -e "${GREEN}[btask] INFO :${DEF} You should try to resubmit the task with btask -resubmit -task "$taskFullName
     echo -en "        ==> Do you want to continue with the hadd job ? [y/n] [default=y]  "
-    if [ $def -eq 0 ];then read a ; else echo "y" ; a="y"; fi
-    case $a in n ) exit ;; esac
+    if [ $def -eq 0 ];then read a ; else echo "$answer" ; a="$answer"; fi
+    case $a in n ) return ;; esac
   fi
   
   #making list of output files
@@ -569,7 +578,7 @@ make_hadd_job(){
   
   if [ "${outputfiles}" == '' ];then
     echo -e "${CYAN}[btask] WARNING :${DEF} no root ouput files were created by the job. Nothing to hadd ..."
-    exit 
+    return 
   fi
   
   echo -e "${GREEN}[btask] INFO :${DEF} Will run ${#outputfiles[@]} hadd subjobs on the ${#outputfiles[@]} following output files :"
@@ -610,8 +619,8 @@ make_hadd_job(){
         echo -e "${CYAN}[btask] WARNING :${DEF} subjob managed to retrieve output, but problem arrised when untaring "$iOutputFile' from '$iSandBox
 	echo -e "                  Will not run hadd on this subjob"
 	echo -en "        ==> Do you want to continue with the hadd job ? [y/n] [default=y]  "
-	if [ $def -eq 0 ];then read a ; else echo "y" ; a="y"; fi
-        case $a in n ) exit ;; esac
+        if [ $def -eq 0 ];then read a ; else echo "$answer" ; a="$answer"; fi
+        case $a in n ) return ;; esac
 	continue
       fi
       
@@ -640,31 +649,31 @@ make_hadd_job(){
   
   
   #making temp conf file
-  cp /dev/null conf_$taskId.txt
-  echo 'taskName = '`echo $taskName`			>> conf_$taskId.txt
-  echo 'inDir    = '$inDir_hadd				>> conf_$taskId.txt
-  echo 'inList   = '$inList_hadd			>> conf_$taskId.txt
-  echo 'outDir   = '$outDir				>> conf_$taskId.txt
-# echo 'outList  = "*.root"'				>> conf_$taskId.txt
-  echo 'outList  = '$haddOutFiles                       >> conf_$taskId.txt
-  echo 'execBase = '$execBase_hadd			>> conf_$taskId.txt
-  echo 'execMult = '`echo $execmult|sed "s#ff ;##"`	>> conf_$taskId.txt
+  cp /dev/null conf_$taskTag.txt
+  echo 'taskName = '`echo $taskName`			>> conf_$taskTag.txt
+  echo 'inDir    = '$inDir_hadd				>> conf_$taskTag.txt
+  echo 'inList   = '$inList_hadd			>> conf_$taskTag.txt
+  echo 'outDir   = '$outDir				>> conf_$taskTag.txt
+# echo 'outList  = "*.root"'				>> conf_$taskTag.txt
+  echo 'outList  = '$haddOutFiles                       >> conf_$taskTag.txt
+  echo 'execBase = '$execBase_hadd			>> conf_$taskTag.txt
+  echo 'execMult = '`echo $execmult|sed "s#ff ;##"`	>> conf_$taskTag.txt
   
   if [ "$execmult" == "ff" ];then
     echo -e "${RED}[btask] ERROR :${DEF} Did not manage to make proper hadd command. See config below:"
     echo -e "--------------"
-    cat conf_$taskId.txt
+    cat conf_$taskTag.txt
     echo -e "--------------"
-    exit
+    return
   fi
   
   
   
-  echo -e "\n${GREEN}[btask] INFO :${DEF} Launching hadd job hadd_$taskId"
+  echo -e "\n${GREEN}[btask] INFO :${DEF} Launching hadd job hadd_$taskTag"
   echo -e "==========================================================================================\n"
   
-  btask -submit conf_$taskId.txt -tag "hadd_$taskId"
-  #cat conf_$taskId.txt
+  btask -submit conf_$taskTag.txt -tag "hadd_$taskTag"
+  #cat conf_$taskTag.txt
 }
 
 
@@ -788,7 +797,7 @@ get_out(){
   
     clean=1
     echo -en "${GREEN}[btask] INFO :${DEF} Do you want to clean this task ? [y/n] [default=y]  "
-    if [ $def -eq 0 ];then read a ; else echo "y" ; a="y"; fi
+    if [ $def -eq 0 ];then read a ; else echo "$answer" ; a="$answer"; fi
     case $a in n ) clean=0 ;; esac
     
   
@@ -797,7 +806,7 @@ get_out(){
       echo -e "${GREEN}[btask] INFO :${DEF} Retrieving task $taskFullName   , job ${taskids[$i]}" 
   
       if [ "$tag" == "NULL" ] ; then
-        tagID=$taskId
+        tagID=$taskTag
       else
         tagID=$tag
       fi
@@ -929,6 +938,7 @@ submit=0
 status=0
 fast=0
 def=0
+answer="y"
 getout=0
 jkill=0
 resubmit=0
@@ -953,7 +963,7 @@ for arg in $* ; do
     -t)                       taskname=$2  ; shift ; shift ;;
     -tag)                     tag=$2       ; shift ; shift ;;
     -pnfs)        pnfs=1 			   ; shift ;;
-    -def)         def=1 			   ; shift ;;
+    -def)         def=1     ; answer=$2		   ; shift ;;
     -help)        Usage ;;
     *) ;;
   esac
@@ -985,10 +995,10 @@ if [ $submit -eq 1 ] ; then
 
   cfg=$option 
   parse_config
-  echo -e "${GREEN}[btask] INFO :${DEF} The following config will be used to start a task:"
   check_config
-  print_config
   mkdir_task
+  echo -e "${GREEN}[btask] INFO :${DEF} The following config will be used to start a task:"
+  print_config
   make_autofilelist
   submit_jobs
   add_task_to_db
