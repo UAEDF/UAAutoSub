@@ -128,6 +128,11 @@ print_config()
 #################################################################################################################################
 parse_config()
 {
+  if [ ! -f $cfg ];then
+    echo -e "${RED}[btask] ERROR :${DEF} The config file $cfg you specified doesn't exist !"
+    exit
+  fi
+
   #echo "--> Parsing cfg file: "$cfg
   MultipleJobs=1
   grep taskName  $cfg -q && taskName=`( cat $cfg | grep taskName  | awk -F"=" '{print $2}' | sed "s: ::g")` || UsageCfg
@@ -441,14 +446,14 @@ make_autofilelist(){
   nfiles=`echo $autolist|sed "s# #\n#g"|wc -l`
   #echo '[btask] INFO : Number of files to divide :' $nfiles
   #echo '[btask] INFO : Number of Jobs to do :' $autoNJobs
-  files_per_jobs=`expr $nfiles / $autoNJobs`
-  #echo '[btask] INFO : Files per Jobs : ' $files_per_jobs
   if [ $autoNJobs -gt $nfiles ];then
     autoNJobs=$nfiles
   fi
+  files_per_jobs=`expr $nfiles / $autoNJobs`
+  #echo '[btask] INFO : Files per Jobs : ' $files_per_jobs
   
   
-  echo -e "${GREEN}[btask] INFO :${DEF} Will create automatically $autoNJobs(+1?) jobs with $files_per_jobs files per jobs"
+  echo -e "${GREEN}[btask] INFO :${DEF} Will create automatically $autoNJobs(+1?) jobs with $files_per_jobs files per jobs for a total of $nfiles files."
   echo -e '               Your code needs to take filelist.txt as input , which is automatically created in "inDir" and added to "inList"'
   echo -e '               If filelist.txt already exists in "inDir"  , it will first be moved, and then restored at the end of the job'
   
