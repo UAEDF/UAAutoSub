@@ -321,7 +321,9 @@ print_task_status_fast(){
 get_task_status(){
   ALLJOBDONE=1
   for i in `seq 0 $( expr $nJobs - 1 )` ; do
-    res=`(qstat -u $USER localgrid@cream01 | grep  ' '"${taskids[$i]}"' ')` 
+    res=`(qstat -u $USER localgrid@cream01e
+    echo "Warning , don't know were you are, crab and correct cms environment will need to be correct before starting crabjob."
+  fi| grep  ' '"${taskids[$i]}"' ')` 
     if [ ! -z "$res" ]; then
       ALLJOBDONE=0
     fi
@@ -993,6 +995,20 @@ if [ $test -gt 1 ] ; then
   echo -e "${RED}[btask] ERROR :${DEF} Can not do submit, status, get, resubmit, hadd at the same time !"
   Usage
 fi
+
+# ------------------------- SET LOCATION (CERN OR IIHE) -------------------------
+
+if [ `uname -a | grep 'iihe.ac.be' | wc -l` -eq 1 ];then
+  LABO=IIHE
+else
+  if [ `uname -a | grep 'cern.ch' | wc -l` -eq 1 ];then
+    LABO=CERN
+  else
+    echo "Warning , don't know were you are, correct before starting subjob."
+    exit -1 
+  fi
+fi
+
 
 # ------------------------  SUBMIT  JOB(S) --------------------------------------
 
