@@ -249,11 +249,12 @@ get_tasks(){
 
 #################################################################################################################################
 print_status(){
-  echo -e "${BLUE}#CPU      Free    Total Jobs      Running Waiting ComputingElement${DEF}    "
-  echo -e "----------------------------------------------------------------------"
-  lcg-infosites --vo cms ce | grep "cream01.iihe.ac.be"
-  echo -e "######################################################################"
-  
+  if [ "$LABO" == "IIHE" ] ; then
+    echo -e "${BLUE}#CPU      Free    Total Jobs      Running Waiting ComputingElement${DEF}    "
+    echo -e "----------------------------------------------------------------------"
+    lcg-infosites --vo cms ce | grep "cream01.iihe.ac.be"
+    echo -e "######################################################################"
+  fi
   get_tasks
     
   if [ "$LABO" == "IIHE" ] ; then
