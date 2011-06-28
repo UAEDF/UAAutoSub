@@ -11,7 +11,7 @@
 Usage=$( cat <<SETVAR
 
 Usage: subjob --inDir <code_directory> --inList <codefile1>,<codefile2>,...,<codefileN> --exec <exec1>,<exec2>,...,<execN> --outList
-<outfile1>,<outfile2>,..,<outfileN> [--sdbdir <SandboxBaseDir>] [--pnfs]
+<outfile1>,<outfile2>,..,<outfileN> [--sdbdir <SandboxBaseDir>] [--pnfs] [--qname <QueueName>]
 
 wildcard allowed !
 
@@ -22,14 +22,17 @@ SETVAR
 
 LABO='NULL'
 ScratchArea='/tmp'
+QueueName='NULL'
 
 if [ `uname -a | grep 'iihe.ac.be' | wc -l` -eq 1 ];then
   LABO=IIHE
   ScratchArea='/scratch'
+  QueueName='localgrid@cream01'
 else
   if [ `uname -a | grep 'cern.ch' | wc -l` -eq 1 ];then
     LABO=CERN
     ScratchArea='/tmp/xjanssen'
+    QueueName='8nm'
   else
     echo "Warning , don't know were you are, correct before starting subjob."
     exit -1 
@@ -63,6 +66,10 @@ InputSandDir=`(  cat $arglistfile | grep "inDir"   | awk -F"inDir"   '{print $2}
 InputSandList=`( cat $arglistfile | grep "inList"  | awk -F"inList"  '{print $2}' )`
 OutputSandList=`(cat $arglistfile | grep "outList" | awk -F"outList" '{print $2}' )`
 Executable=`(    cat $arglistfile | grep "exec"    | awk -F"exec"    '{print $2}' )`
+test=`(cat $arglistfile | grep "qname")`
+if [ ! -z "$test" ] ; then
+  QueueName=`(    cat $arglistfile | grep "qname"    | awk -F"qname"   '{print $2}' )`
+fi
 rm $arglistfile
 
 echo Starting the following process:
@@ -147,14 +154,14 @@ chmod +x $subfile
 ### Submit job
 echo "JobID           : $jobid"
 if [ `uname -a | grep 'iihe.ac.be' | wc -l` -eq 1 ];then
-  qsub -N $jobid -q localgrid@cream01 -o $SandboxDir/stdout -e $SandboxDir/stderr $subfile
+  qsub -N $jobid -q $QueueName -o $SandboxDir/stdout -e $SandboxDir/stderr $subfile
   echo "Job id                    Name             User            Time Use S Queue"
   echo "------------------------- ---------------- --------------- -------- - -----"
-  qstat -u $USER localgrid@cream01 | grep $jobid
+  qstat -u $USER $QueueName | grep $jobid
 else
   if [ `uname -a | grep lxplus | wc -l` -eq 1 ];then
     echo "Setting lxplus environment"
-    bsub -J $jobid -q "8nm" -o $SandboxDir/stdout -e $SandboxDir/stderr $subfile
+    bsub -J $jobid -q $QueueName -o $SandboxDir/stdout -e $SandboxDir/stderr $subfile 
     bjobs | grep $jobid
   else
     echo "Warning , don't know were you are, correct before starting subjob."

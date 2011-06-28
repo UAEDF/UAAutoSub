@@ -16,6 +16,7 @@ CYAN='\033[1;36m'
 RED='\033[1;31m'
 GREEN='\033[1;32m'
 YEL='\033[1;33m'
+YEL=$BLUE
 DEF='\033[0;m'
 
 
@@ -109,6 +110,7 @@ UsageCfg()
 print_config()
 {
   echo "taskName   = "$taskName
+  echo "queueName  = "$queueName
   echo "inDir      = "$inDir   
   echo "inList     = "$inList  
   echo "outDir     = "$outDir   
@@ -136,6 +138,7 @@ parse_config()
   #echo "--> Parsing cfg file: "$cfg
   MultipleJobs=1
   grep taskName  $cfg -q && taskName=`( cat $cfg | grep taskName  | awk -F"=" '{print $2}' | sed "s: ::g")` || UsageCfg
+  grep queueName $cfg -q && queueName=`(cat $cfg | grep queueName | awk -F"=" '{print $2}' | sed "s: ::g")` || UsageCfg
   grep inDir     $cfg -q && inDir=`(    cat $cfg | grep inDir     | awk -F"=" '{print $2}'               )` || UsageCfg
   grep inList    $cfg -q && inList=`(   cat $cfg | grep inList    | awk -F"=" '{print $2}'               )` || UsageCfg
   grep outDir    $cfg -q && outDir=`(   cat $cfg | grep outDir    | awk -F"=" '{print $2}'               )` || UsageCfg
@@ -247,9 +250,15 @@ print_status(){
   
   get_tasks
     
-  echo -e "${BLUE}Job ID  	     Username Queue    Jobname  	SessID NDS   TSK Memory Time  S Time${DEF} "
-  echo -e "-------------------- -------- -------- ---------------- ------ ----- --- ------ ----- - -----"
-  
+  if [ "$LABO" == "IIHE" ] ; then
+    echo -e "${BLUE}Job ID  	     Username Queue    Jobname  	SessID NDS   TSK Memory Time  S Time${DEF} "
+    echo -e "-------------------- -------- -------- ---------------- ------ ----- --- ------ ----- - -----"
+  fi 
+  if [ "$LABO" == "CERN" ] ; then
+    echo -e "${BLUE}JOBID     USER    STAT  QUEUE      FROM_HOST   EXEC_HOST   JOB_NAME   SUBMIT_TIME${DEF} "
+    echo -e "----------------------------------------------------------------------------------"
+  fi
+ 
   for job in $joblist ; do
     job=`echo $job | sed "s:;: :g"`
     get_para_from_db
@@ -258,10 +267,22 @@ print_status(){
 }
 
 #################################################################################################################################
+set_qstat(){
+    if [ "$LABO" == "IIHE" ] ; then
+      QSTAT=$(echo "qstat -u $USER $queueName") 
+    fi
+    if [ "$LABO" == "CERN" ] ; then
+      QSTAT=$(echo "bjobs")
+    fi
+}
+
+#################################################################################################################################
 print_task_status(){
   echo -e "-------------------------  ${BLUE}$taskFullName${DEF}  ----------------------------"
+  
   for i in `seq 0 $( expr $nJobs - 1 )` ; do
-    res=`(qstat -u $USER localgrid@cream01 | grep  ' '"${taskids[$i]}"' ')` 
+    set_qstat
+    res=`( $QSTAT 2>/dev/null | grep  ' '"${taskids[$i]}"' ')`   
     case `get_job_status` in
       -2 ) echo -e "${RED}$res${DEF}"  ; continue ;;
       -1 ) echo -e "${YEL}$res${DEF}"  ; continue ;;
@@ -320,10 +341,9 @@ print_task_status_fast(){
 #################################################################################################################################
 get_task_status(){
   ALLJOBDONE=1
+  set_qstat
   for i in `seq 0 $( expr $nJobs - 1 )` ; do
-    res=`(qstat -u $USER localgrid@cream01e
-    echo "Warning , don't know were you are, crab and correct cms environment will need to be correct before starting crabjob."
-  fi| grep  ' '"${taskids[$i]}"' ')` 
+    res=`($QSTAT 2>/dev/null | grep  ' '"${taskids[$i]}"' ')` 
     if [ ! -z "$res" ]; then
       ALLJOBDONE=0
     fi
@@ -334,9 +354,16 @@ get_task_status(){
 
 #################################################################################################################################
 get_job_status(){
-  res=`(qstat -u $USER localgrid@cream01 | grep  ' '"${taskids[$i]}"' ')` 
+  set_qstat
+  res=`($QSTAT 2>/dev/null | grep  ' '"${taskids[$i]}"' ')` 
   if [ ! -z "$res" ]; then
-    if [ `echo $res|grep -e " Q " -c` -eq 1 ];then
+    if [ "$LABO" == "IIHE" ] ; then
+      PEND='Q'
+    fi
+    if [ "$LABO" == "CERN" ] ; then
+      PEND='PEND' 
+    fi
+    if [ `echo $res|grep -e " $PEND " -c` -eq 1 ];then
       echo -e "-2"
     else
       echo -e "-1"
@@ -695,7 +722,7 @@ submit_jobs(){
     mv $inDir/filelist.txt /tmp/filelist_$taskID
   fi
 
-  SUBMIT="subjob --sdbdir $taskSdb --inDir $inDir --outList $outList" 
+  SUBMIT="subjob --sdbdir $taskSdb --inDir $inDir --outList $outList --qname $queueName" 
   
   if [ $pnfs -gt 0 ];then
     SUBMIT=`echo "$SUBMIT --pnfs"`
@@ -750,10 +777,16 @@ kill_jobs(){
     for i in `seq 0 $( expr $nJobs - 1 )`; do
       echo -e "${GREEN}[btask] INFO :${DEF} Killing SubTask: "${taskids[$i]}
       # Kill job (if still running)
-      res=`(qstat -u $USER localgrid@cream01 | grep ${taskids[$i]})` 
+      set_qstat
+      res=`($QSTAT 2>/dev/null | grep ${taskids[$i]})` 
       if [ ! -z "$res" ]; then
         id=`(echo $res | awk '{print $1}' | awk -F'.' '{print $1}')`
-        qdel $id.cream01 
+        if [ "$LABO" == "IIHE" ] ; then
+          qdel $id.cream01 
+        fi
+        if [ "$LABO" == "CERN" ] ; then
+          bkill $id
+        fi
       fi
       
       # Remove SubTask SandBox
@@ -914,7 +947,12 @@ resubmit(){
     if [[ ! -f $tarFile && $pnfs -eq 0 ]] || [[ $pnfs -gt 0  && `ls $pnfsdir${sandboxes[$i]}|wc -l` -eq 0 ]];then
       echo -e "${CYAN}[btask] WARNING :${DEF} No output files were present for job "${taskids[$i]}
       echo -e "	    ==> resubmitting the job ${YEL}${taskids[$i]}${DEF}"
-      qsub -N ${taskids[$i]} -q localgrid@cream01 -o `pwd`/stdout_retry -e `pwd`/stderr_retry qsub.sh > /dev/null
+      if [ "$LABO" == "IIHE" ] ; then
+        qsub -N ${taskids[$i]} -q $queueName -o `pwd`/stdout_retry -e `pwd`/stderr_retry qsub.sh > /dev/null
+      fi
+      if [ "$LABO" == "CERN" ] ; then
+        bsub -J ${taskids[$i]} $queueName -o `pwd`/stdout_retry -e `pwd`/stderr_retry qsub.sh > /dev/null
+      fi
     fi
   done
 
@@ -999,10 +1037,12 @@ fi
 # ------------------------- SET LOCATION (CERN OR IIHE) -------------------------
 
 if [ `uname -a | grep 'iihe.ac.be' | wc -l` -eq 1 ];then
-  LABO=IIHE
+  LABO='IIHE'
+  queueName='localgrid@cream01'
 else
   if [ `uname -a | grep 'cern.ch' | wc -l` -eq 1 ];then
-    LABO=CERN
+    LABO='CERN'
+    queueName='8nm'
   else
     echo "Warning , don't know were you are, correct before starting subjob."
     exit -1 
