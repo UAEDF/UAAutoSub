@@ -85,7 +85,13 @@ if [ ! -f $donedb ];then
   touch $donedb
 fi
 
-sdbdir=$(eval echo $( cat $btask_config | grep sandboxdir | awk '{print $2}' ))
+
+if [ `uname -a | grep 'iihe.ac.be' | wc -l` -eq 1 ];then
+  sdbdir=$(eval echo $( cat $btask_config | grep sandboxdiriihe | awk '{print $2}' ))
+fi
+if [ `uname -a | grep 'cern.ch' | wc -l` -eq 1 ];then
+  sdbdir=$(eval echo $( cat $btask_config | grep sandboxdircern | awk '{print $2}' ))
+fi
 
 hadd_code=$(eval echo $( cat $btask_config | grep hadd_code | awk '{print $2}' ))
 hadd_dir="`cat $btask_config | grep hadd_dir | sed 's:hadd_dir::'`"
