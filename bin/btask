@@ -32,7 +32,7 @@ Manual=`echo -e '
    btask '"${RED}-status${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>]"'
    btask '"${RED}-hadd${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>] [${CYAN}-def${DEF} <y/n>]"'
    btask '"${RED}-hadd_tweak${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>] [${CYAN}-def${DEF} <y/n>]"'
-   btask '"${RED}-get${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>] [${CYAN}-tag${DEF} <mytag>] [${CYAN}-def${DEF} <y/n>]"'
+   btask '"${RED}-get${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>] [${CYAN}-tag${DEF} <mytag>] [${CYAN}-def${DEF} <y/n>] [${CYAN}-norename${DEF}] [${CYAN}-nojobid${DEF}]"'  
    btask '"${RED}-kill${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>]"'
    btask '"${RED}-help${DEF} "'
 
@@ -49,7 +49,9 @@ For more details see '"${BLUE}https://twiki.cern.ch/twiki/bin/viewauth/CMS/UAToo
 '"\n    ${RED}hadd_tweak ${DEF}"': Same as -hadd, but recompiles hadd.cxx code with your libraries. Useful for instance to merge TOperation objects. 
                  Need to provide details of classes to hadd in config/btask.conf.
 '"\n    ${RED}get ${DEF}"'       : Will retrieve for all finished tasks all outputs specified in outList and put them in outDir . 
-                 Files will have name : myfilename_taskname_tag.extension. Will clean by default the tasks.
+                 Files will have name : myfilename_taskname_tag_jobid.extension. Will clean by default the tasks.
+                 (-noremame: skip adding _taskname_tag to myfilename)
+                 (-nojobid : skip adding _jobid number to myfilename)
 '"\n    ${RED}kill ${DEF}"'      : Will kill all jobs.
 '"\n    ${CYAN}t/task ${DEF}"'    : (optional) jointly used with -status , -resubmit , -hadd , -get , -kill , will execute the option only for the given task. 
 '"\n    ${CYAN}def ${DEF}"'       : (optional) will answer by default to questions. Takes y [for yes] or n [for no] as parameter 
@@ -123,14 +125,15 @@ print_config()
   echo "outList    = "$outList 
   echo "execBase   = "$execBase
   echo "execMult   = "$execMult
-  if [ $autoON != 0 ];then
-    echo "autoFiles           = $autoFiles"
-    if [ $autoNJobs -ne 0 ];then
-      echo "autoNJobs           = $autoNJobs"
-    else
-      echo "autoNfiles_per_jobs = $autoNfiles_per_jobs"
-    fi
-  fi
+#  if [  $autoON -ne 0 ];then
+#    echo "autoFiles           = $autoFiles"
+
+#    if [ $autoNJobs -ne 0 ];then
+#      echo "autoNJobs           = $autoNJobs"
+#    else
+#      echo "autoNfiles_per_jobs = $autoNfiles_per_jobs"
+#    fi
+#  fi
 }
 
 #################################################################################################################################
@@ -143,22 +146,21 @@ parse_config()
 
   #echo "--> Parsing cfg file: "$cfg
   MultipleJobs=1
-  grep taskName  $cfg -q && taskName=`( cat $cfg | grep taskName  | awk -F"=" '{print $2}' | sed "s: ::g")` || UsageCfg
-  grep queueName $cfg -q && queueName=`(cat $cfg | grep queueName | awk -F"=" '{print $2}' | sed "s: ::g")` || UsageCfg
-  grep inDir     $cfg -q && inDir=`(    cat $cfg | grep inDir     | awk -F"=" '{print $2}'               )` || UsageCfg
-  grep inList    $cfg -q && inList=`(   cat $cfg | grep inList    | awk -F"=" '{print $2}'               )` || UsageCfg
-  grep outDir    $cfg -q && outDir=`(   cat $cfg | grep outDir    | awk -F"=" '{print $2}'               )` || UsageCfg
-  grep outList   $cfg -q && outList=`(  cat $cfg | grep outList   | awk -F"=" '{print $2}'               )` || UsageCfg
-  grep execBase  $cfg -q && execBase=`( cat $cfg | grep execBase  | awk -F"=" '{print $2}'               )` || UsageCfg
-  grep execMult  $cfg -q && execMult=`(cat $cfg  | grep execMult  | awk -F"=" '{print $2}'               )` || MultipleJobs=0
-  
+  grep taskName  $cfg -q && taskName=`( cat $cfg | grep taskName  | awk -F'=' '{print $2}' | sed "s: ::g")` || UsageCfg
+  grep queueName $cfg -q && queueName=`(cat $cfg | grep queueName | awk -F'=' '{print $2}' | sed "s: ::g")` || echo '[btask] INFO : Using default : '$queueName
+  grep inDir     $cfg -q && inDir=`(    cat $cfg | grep inDir     | awk -F'=' '{print $2}'               )` || UsageCfg
+  grep inList    $cfg -q && inList=`(   cat $cfg | grep inList    | awk -F'=' '{print $2}'               )` || UsageCfg
+  grep outDir    $cfg -q && outDir=`(   cat $cfg | grep outDir    | awk -F'=' '{print $2}'               )` || UsageCfg
+  grep outList   $cfg -q && outList=`(  cat $cfg | grep outList   | awk -F'=' '{print $2}'               )` || UsageCfg
+  grep execBase  $cfg -q && execBase=`( cat $cfg | grep execBase  | awk -F'=' '{print $2}'               )` || UsageCfg
+  grep execMult  $cfg -q && execMult=`(cat $cfg  | grep execMult  | awk -F'=' '{print $2}'               )` || MultipleJobs=0
+ 
   #auto Variables
   grep autoFiles $cfg -q && autoFiles=`(cat $cfg | grep autoFiles | awk -F"=" '{print $2}'               )` || autoFiles=0
   grep autoNJobs $cfg -q && autoNJobs=`(cat $cfg | grep autoNJobs | awk -F"=" '{print $2}'               )` || autoNJobs=0
   grep autoNfiles_per_jobs $cfg -q && autoNfiles_per_jobs=`(cat $cfg | grep autoNfiles_per_jobs | awk -F"=" '{print $2}' )` || autoNfiles_per_jobs=0
   #grep autoFileManagerArgs $cfg -q && autoFileManagerArgs=`(cat $cfg | grep autoFileManagerArgs | awk -F"=" '{print $2}'               )` || autoNJobs=0
   #print_config
-  
   
   return 1
 }
@@ -340,7 +342,11 @@ print_task_status_fast(){
     esac
   done
   #echo -e "${BLUE}%30$taskFullName${DEF} \t\t ${GREEN}$n_finished/$nJobs \t ${RED}$n_crashed/$nJobs \t ${YEL}$n_running/$nJobs \t ${CYAN}$n_queued/$nJobs ${DEF}"
-  printf "${BLUE}%-30s ${GREEN}%-10s  ${RED}%-10s  ${YEL}%-10s  ${CYAN}%-9s  ${DEF}%s \n" "$taskFullName" "$n_finished" "$n_crashed" "$n_running" "$n_queued" "$nJobs"
+  if [ $bw -eq 1 ] ; then
+    printf "%-30s %-10s  %-10s  %-10s  %-9s  %s \n" "$taskFullName" "$n_finished" "$n_crashed" "$n_running" "$n_queued" "$nJobs"
+  else
+     printf "${BLUE}%-30s ${GREEN}%-10s  ${RED}%-10s  ${YEL}%-10s  ${CYAN}%-9s  ${DEF}%s \n" "$taskFullName" "$n_finished" "$n_crashed" "$n_running" "$n_queued" "$nJobs"
+  fi
   #printf "${BLUE}%30$taskFullName${DEF} \t\t ${GREEN}$n_finished/$nJobs \t ${RED}$n_crashed/$nJobs \t ${YEL}$n_running/$nJobs \t ${CYAN}$n_queued/$nJobs ${DEF}"
 }
 
@@ -439,7 +445,7 @@ add_task_to_db(){
   cp /dev/null $taskDir/$taskName.cfg
   print_config >> $taskDir/$taskName.cfg
   echo $taskName' '$taskTag' '$taskID'  '${#vJobID[@]}' '$pnfs >> $ongodb
-  echo -e "${GREEN}[btask] INFO :${DEF} The following task has been started: ${YEL}$taskName#$taskTag${DEF}"
+  echo -e "${GREEN}[btask] INFO :${DEF} The following task has been started: $taskName#$taskTag"
   echo -e "${GREEN}[btask] INFO :${DEF} composed of subtask : ${YEL}${vJobID[@]}${DEF}"
 }
 
@@ -880,12 +886,27 @@ get_out(){
 	  #making output file name
           test=`echo $file | (grep "\.")`
           if [ ! -z $test ] ; then
-            first=`(echo  $file | awk '{split($0,a,"."); n=0 ; for (i in a) n++ ; nm1=n-1; for (i=1; i<nm1; i++) printf a[i]"." ; print a[nm1]"_" }')`
-            middle=$taskName'_'$tagID'_'$i'.'
+            first=`(echo  $file | awk '{split($0,a,"."); n=0 ; for (i in a) n++ ; nm1=n-1; for (i=1; i<nm1; i++) printf a[i]"." ; print a[nm1] }')`
+            #middle=$taskName'_'$tagID'_'$i'.'
+            middle=''
+            if [ $norename -eq 0 ] ; then
+              middle='_'$taskName'_'$tagID
+            fi
+            if [ $nojobid -eq 0 ] ; then
+              middle=$middle'_'$i
+            fi
+            middle=$middle'.'
             last=`(echo  $file | awk '{split($0,a,"."); n=0 ; for (i in a) n++ ; print a[n]}')`
             outfile=$first$middle$last
           else
-            outfile=$file"_"$taskName'_'$tagID'_'$i
+            #outfile=$file"_"$taskName'_'$tagID'_'$i
+            outfile=$file
+            if [ $norename -eq 0 ] ; then
+              outfile=$outfile'_'$taskName'_'$tagID
+            fi
+            if [ $nojobid -eq 0 ] ; then
+              outfile=$outfile'_'$i
+            fi
           fi
           
 	  #untaring/copying the files
@@ -999,6 +1020,9 @@ hadd_tweak=0
 tag="NULL"
 taskname="NULL"
 pnfs=0
+norename=0
+nojobid=0
+bw=0
 
 for arg in $* ; do
 
@@ -1016,6 +1040,9 @@ for arg in $* ; do
     -tag)                     tag=$2       ; shift ; shift ;;
     -pnfs)        pnfs=1 			   ; shift ;;
     -def)         def=1     ; answer=$2		   ; shift ;;
+    -norename)    norename=1                       ; shift ;;
+    -nojobid)     nojobid=1                        ; shift ;;   
+    -bw)          bw=1                             ; shift ;;
     -help)        Usage ;;
     *) ;;
   esac
