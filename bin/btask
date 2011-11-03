@@ -976,7 +976,12 @@ resubmit(){
       echo -e "${CYAN}[btask] WARNING :${DEF} No output files were present for job "${taskids[$i]}
       echo -e "	    ==> resubmitting the job ${YEL}${taskids[$i]}${DEF}"
       if [ "$LABO" == "IIHE" ] ; then
-        qsub -N ${taskids[$i]} -q $queueName -o `pwd`/stdout_retry -e `pwd`/stderr_retry qsub.sh > /dev/null
+        if [ "$wtime" == "DEFAULT" ] ; then
+          QSOPT=""
+        else
+          QSOPT="-l walltime=$wtime"
+        fi
+        qsub $QSOPT -N ${taskids[$i]} -q $queueName -o `pwd`/stdout_retry -e `pwd`/stderr_retry qsub.sh > /dev/null
       fi
       if [ "$LABO" == "CERN" ] ; then
         bsub -J ${taskids[$i]} $queueName -o `pwd`/stdout_retry -e `pwd`/stderr_retry qsub.sh > /dev/null
@@ -1024,6 +1029,9 @@ norename=0
 nojobid=0
 bw=0
 
+# time of jobs
+wtime="DEFAULT"
+
 for arg in $* ; do
 
   case $arg in
@@ -1043,6 +1051,7 @@ for arg in $* ; do
     -norename)    norename=1                       ; shift ;;
     -nojobid)     nojobid=1                        ; shift ;;   
     -bw)          bw=1                             ; shift ;;
+    -wtime)       wtime=$2  ;              ; shift ; shift ;;
     -help)        Usage ;;
     *) ;;
   esac
