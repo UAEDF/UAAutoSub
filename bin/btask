@@ -26,7 +26,7 @@ DEF='\033[0;m'
 Manual=`echo -e '
 '"${BLUE}Possibilities:${DEF}"'
 
-   btask '"${RED}-submit${DEF} <myconfile> [${CYAN}-tag${DEF} <mytag>] [${CYAN}-pnfs${DEF}]"'
+   btask '"${RED}-submit${DEF} <myconfile> [${CYAN}-tag${DEF} <mytag>] [${CYAN}-pnfs${DEF}] [${CYAN}-wtime <HH:MM:SS>${DEF}] "'
    btask '"${RED}-resubmit${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>]"'
    btask '"${RED}-s${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>]"'
    btask '"${RED}-status${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>]"'
@@ -41,6 +41,7 @@ For more details see '"${BLUE}https://twiki.cern.ch/twiki/bin/viewauth/CMS/UAToo
 '"\n    ${RED}submit ${DEF}"'    : to start submission of the task specified in the config file.
 '"\n    ${CYAN}tag ${DEF}"'       : (optional) to have a user specified tag replacing the unique ID automatically created.
 '"\n    ${CYAN}pnfs ${DEF}"'      : (optional) stores temporarily outputfiles on /pnfs rather than /localgrid, to circumvent the 50GB space-limit of localgrid.
+'"\n    ${CYAN}wtime${DEF}"'      : (optional) At IIHE, specify the length of your jobs. Each job priority receives and extra factor: XF/<HH:MM:SS>, where XF is a constant.  
 '"\n    ${RED}resubmit ${DEF}"'  : to resubmit subjobs with no outputs.
 '"\n    ${RED}s ${DEF}"'         : to check the status of your tasks. Short output.
 '"\n    ${RED}status ${DEF}"'    : same as -s option, but with long output. 
