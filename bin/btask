@@ -1052,7 +1052,7 @@ for arg in $* ; do
     -norename)    norename=1                       ; shift ;;
     -nojobid)     nojobid=1                        ; shift ;;   
     -bw)          bw=1                             ; shift ;;
-    -wtime)       wtime=$2  ;              ; shift ; shift ;;
+    -wtime)       wtime=$2                 ; shift ; shift ;;
     -help)        Usage ;;
     *) ;;
   esac
