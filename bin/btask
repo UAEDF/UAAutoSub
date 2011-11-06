@@ -231,8 +231,10 @@ get_specific_task(){
   # Check if job is done
   get_para_from_db
   is_task_finished
-  if [ `get_task_status` -eq 0 ] ; then
-    exit
+  if [ $resubmit -eq 0 ] ; then
+    if [ `get_task_status` -eq 0 ] ; then
+      exit
+    fi
   fi
 }
 
@@ -1086,7 +1088,7 @@ if [ `uname -a | grep 'iihe.ac.be' | wc -l` -eq 1 ];then
 else
   if [ `uname -a | grep 'cern.ch' | wc -l` -eq 1 ];then
     LABO='CERN'
-    queueName='8nm'
+    queueName='8nh'
   else
     echo "Warning , don't know were you are, correct before starting subjob."
     exit -1 

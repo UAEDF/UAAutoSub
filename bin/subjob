@@ -11,7 +11,7 @@
 Usage=$( cat <<SETVAR
 
 Usage: subjob --inDir <code_directory> --inList <codefile1>,<codefile2>,...,<codefileN> --exec <exec1>,<exec2>,...,<execN> --outList
-<outfile1>,<outfile2>,..,<outfileN> [--sdbdir <SandboxBaseDir>] [--pnfs] [--qname <QueueName>]
+<outfile1>,<outfile2>,..,<outfileN> [--sdbdir <SandboxBaseDir>] [--pnfs] [--qname <QueueName>] [--wtime <HH:MM:SS>]
 
 wildcard allowed !
 
@@ -70,6 +70,16 @@ test=`(cat $arglistfile | grep "qname")`
 if [ ! -z "$test" ] ; then
   QueueName=`(    cat $arglistfile | grep "qname"    | awk -F"qname"   '{print $2}' )`
 fi
+
+if [ "$LABO" == "IIHE" ] ; then
+  QSOPT=""
+  test=`(cat $arglistfile | grep "wtime")`
+  if [ ! -z "$test" ] ; then
+    wtime=`(  cat $arglistfile | grep "wtime" | awk -F"wtime"   '{print $2}' )`
+    QSOPT="-l walltime=$wtime"
+  fi
+fi
+
 rm $arglistfile
 
 echo Starting the following process:
@@ -80,7 +90,7 @@ echo 'InputSandDir   : ' $InputSandDir
 echo 'InputSandList  : ' $InputSandList
 echo 'OutputSandList : ' $OutputSandList
 echo 'Executable     : ' $Executable
-
+  echo 'IIHE walltime  : ' $wtime
 
 ### Create Sandbox directory
 if [ "$jobid" == "NULL" ] ; then
@@ -154,7 +164,7 @@ chmod +x $subfile
 ### Submit job
 echo "JobID           : $jobid"
 if [ `uname -a | grep 'iihe.ac.be' | wc -l` -eq 1 ];then
-  qsub -N $jobid -q $QueueName -o $SandboxDir/stdout -e $SandboxDir/stderr $subfile
+  qsub $QSOPT -N $jobid -q $QueueName -o $SandboxDir/stdout -e $SandboxDir/stderr $subfile
   echo "Job id                    Name             User            Time Use S Queue"
   echo "------------------------- ---------------- --------------- -------- - -----"
   qstat -u $USER $QueueName | grep $jobid
