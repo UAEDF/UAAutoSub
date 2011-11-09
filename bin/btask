@@ -987,7 +987,7 @@ resubmit(){
         qsub $QSOPT -N ${taskids[$i]} -q $queueName -o `pwd`/stdout_retry -e `pwd`/stderr_retry qsub.sh > /dev/null
       fi
       if [ "$LABO" == "CERN" ] ; then
-        bsub -J ${taskids[$i]} $queueName -o `pwd`/stdout_retry -e `pwd`/stderr_retry qsub.sh > /dev/null
+        bsub -J ${taskids[$i]} -q $queueName -o `pwd`/stdout_retry -e `pwd`/stderr_retry qsub.sh > /dev/null
       fi
     fi
   done

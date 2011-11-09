@@ -146,6 +146,8 @@ echo "cd $ScratchArea/$jobid"                  		>> $subfile
 echo 'export LD_LIBRARY_PATH=`pwd`:$LD_LIBRARY_PATH'	>> $subfile   
 echo "cp $InputSandbox ."                    		>> $subfile
 echo "tar xzf InputSandbox.tgz"              		>> $subfile
+echo "echo ----------------------- List of File at the begin on grid node: ">> $subfile
+echo "ls                    "                           >> $subfile
 echo "$Exec"                                 		>> $subfile
 echo "echo ----------------------- List of File at the end on grid node: ">> $subfile
 echo "ls                    "                		>> $subfile 
@@ -160,6 +162,7 @@ else
   #echo "ln -s /pnfs/iihe/cms/store/user/$USER/$SandboxDir/OutputSandbox.tgz $SandboxDir/OutputSandbox.tgz"      >> $subfile
   #echo "rm -f OutputSandbox.tgz"      >> $subfile
 fi
+echo "sleep 30" >> $subfile
 chmod +x $subfile
 ### Submit job
 echo "JobID           : $jobid"
