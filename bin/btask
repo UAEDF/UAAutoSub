@@ -126,6 +126,7 @@ print_config()
   echo "outList    = "$outList 
   echo "execBase   = "$execBase
   echo "execMult   = "$execMult
+
 #  if [  $autoON -ne 0 ];then
 #    echo "autoFiles           = $autoFiles"
 
@@ -193,6 +194,8 @@ check_config()
       exit ;
     fi  
   fi
+
+echo $autoON autoOn
 }
 
 #################################################################################################################################
@@ -973,7 +976,10 @@ resubmit(){
   tarFile="OutputSandbox.tgz"
   for i in `seq 0 $( expr $nJobs - 1 )` ; do
     cd ${sandboxes[$i]}
-    
+   
+    #resubmit only if job is crashed
+    if [ `get_job_status` -ne 0 ];then continue;fi
+ 
     #checking if $tarFile is present
     if [[ ! -f $tarFile && $pnfs -eq 0 ]] || [[ $pnfs -gt 0  && `ls $pnfsdir${sandboxes[$i]}|wc -l` -eq 0 ]];then
       echo -e "${CYAN}[btask] WARNING :${DEF} No output files were present for job "${taskids[$i]}
