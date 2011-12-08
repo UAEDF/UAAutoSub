@@ -26,13 +26,13 @@ DEF='\033[0;m'
 Manual=`echo -e '
 '"${BLUE}Possibilities:${DEF}"'
 
-   btask '"${RED}-submit${DEF} <myconfile> [${CYAN}-tag${DEF} <mytag>] [${CYAN}-pnfs${DEF}] [${CYAN}-wtime <HH:MM:SS>${DEF}] "'
-   btask '"${RED}-resubmit${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>]"'
+   btask '"${RED}-submit${DEF} <myconfile> [${CYAN}-tag${DEF} <mytag>] [${CYAN}-pnfs${DEF}] [${CYAN}-wtime${DEF} <HH:MM:SS>] "'
+   btask '"${RED}-resubmit${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>] [${CYAN}-wtime${DEF} <HH:MM:SS>] "'
    btask '"${RED}-s${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>]"'
    btask '"${RED}-status${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>]"'
    btask '"${RED}-hadd${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>] [${CYAN}-def${DEF} <y/n>]"'
    btask '"${RED}-hadd_tweak${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>] [${CYAN}-def${DEF} <y/n>]"'
-   btask '"${RED}-get${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>] [${CYAN}-tag${DEF} <mytag>] [${CYAN}-def${DEF} <y/n>] [${CYAN}-norename${DEF}] [${CYAN}-nojobid${DEF}]"'  
+   btask '"${RED}-get${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>] [${CYAN}-tag${DEF} <mytag>] [${CYAN}-def${DEF} <y/n>] [${CYAN}-norename${DEF}] [${CYAN}-nojobid${DEF}] [${CYAN}-local_hadd${DEF}]"'  
    btask '"${RED}-kill${DEF} [${CYAN}-t/-task${DEF} <mytaskname#tag>]"'
    btask '"${RED}-help${DEF} "'
 
@@ -51,8 +51,9 @@ For more details see '"${BLUE}https://twiki.cern.ch/twiki/bin/viewauth/CMS/UAToo
                  Need to provide details of classes to hadd in config/btask.conf.
 '"\n    ${RED}get ${DEF}"'       : Will retrieve for all finished tasks all outputs specified in outList and put them in outDir . 
                  Files will have name : myfilename_taskname_tag_jobid.extension. Will clean by default the tasks.
-                 (-noremame: skip adding _taskname_tag to myfilename)
-                 (-nojobid : skip adding _jobid number to myfilename)
+                 ('${CYAN}-noremame${DEF}'   : skip adding _taskname_tag to myfilename)
+                 ('${CYAN}-nojobid${DEF}'    : skip adding _jobid number to myfilename)
+                 ('${CYAN}-local_hadd${DEF}' : will perform an hadd on files after the get [for now works only if just 1 output root file] )
 '"\n    ${RED}kill ${DEF}"'      : Will kill all jobs.
 '"\n    ${CYAN}t/task ${DEF}"'    : (optional) jointly used with -status , -resubmit , -hadd , -get , -kill , will execute the option only for the given task. 
 '"\n    ${CYAN}def ${DEF}"'       : (optional) will answer by default to questions. Takes y [for yes] or n [for no] as parameter 
@@ -150,9 +151,9 @@ parse_config()
   MultipleJobs=1
   grep taskName  $cfg -q && taskName=`( cat $cfg | grep taskName  | awk -F'=' '{print $2}' | sed "s: ::g")` || UsageCfg
   grep queueName $cfg -q && queueName=`(cat $cfg | grep queueName | awk -F'=' '{print $2}' | sed "s: ::g")` || echo '[btask] INFO : Using default : '$queueName
-  grep inDir     $cfg -q && inDir=`(    cat $cfg | grep inDir     | awk -F'=' '{print $2}'               )` || UsageCfg
+  grep inDir     $cfg -q && inDir=`(    cat $cfg | grep inDir     | awk -F'=' '{print $2}' | sed "s: ::g")` || UsageCfg
   grep inList    $cfg -q && inList=`(   cat $cfg | grep inList    | awk -F'=' '{print $2}'               )` || UsageCfg
-  grep outDir    $cfg -q && outDir=`(   cat $cfg | grep outDir    | awk -F'=' '{print $2}'               )` || UsageCfg
+  grep outDir    $cfg -q && outDir=`(   cat $cfg | grep outDir    | awk -F'=' '{print $2}' | sed "s: ::g")` || UsageCfg
   grep outList   $cfg -q && outList=`(  cat $cfg | grep outList   | awk -F'=' '{print $2}'               )` || UsageCfg
   grep execBase  $cfg -q && execBase=`( cat $cfg | grep execBase  | awk -F'=' '{print $2}'               )` || UsageCfg
   grep execMult  $cfg -q && execMult=`(cat $cfg  | grep execMult  | awk -F'=' '{print $2}'               )` || MultipleJobs=0
@@ -194,8 +195,6 @@ check_config()
       exit ;
     fi  
   fi
-
-echo $autoON autoOn
 }
 
 #################################################################################################################################
@@ -409,7 +408,7 @@ get_job_status(){
 #################################################################################################################################
 is_task_finished(){
   echo -e "\n${GREEN}[btask] INFO :${DEF} Checking task: "$taskFullName
-  if [ `get_task_status`  -eq 0 ] ; then
+  if [ `get_task_status` -eq 0 ] ; then
     echo -e "${RED}[btask] ERROR :${DEF} Not all jobs are done for task: "$taskFullName
   fi
 }
@@ -599,8 +598,7 @@ make_hadd_job(){
       tar xzf $tarFile
     fi
     
-    #keeping the number of a
-    #sandbox with output files
+    #keeping the number of a sandbox with output files
     goodSb=$i
     
   done
@@ -741,12 +739,11 @@ submit_jobs(){
     mv $inDir/filelist.txt /tmp/filelist_$taskID
   fi
 
-  SUBMIT="subjob --sdbdir $taskSdb --inDir $inDir --outList $outList --qname $queueName" 
+  SUBMIT="subjob --sdbdir $taskSdb --inDir $inDir --outList $outList --qname $queueName --wtime$wtime" 
   
   if [ $pnfs -gt 0 ];then
     SUBMIT=`echo "$SUBMIT --pnfs"`
   fi
-  
   
   iJob=0
 
@@ -802,8 +799,7 @@ kill_jobs(){
         id=`(echo $res | awk '{print $1}' | awk -F'.' '{print $1}')`
         if [ "$LABO" == "IIHE" ] ; then
           qdel $id.cream01 
-        fi
-        if [ "$LABO" == "CERN" ] ; then
+        elif [ "$LABO" == "CERN" ] ; then
           bkill $id
         fi
       fi
@@ -859,6 +855,7 @@ get_out(){
     if [ $def -eq 0 ];then read a ; else echo "$answer" ; a="$answer"; fi
     case $a in n ) clean=0 ;; esac
     
+    nFilesToHadd=0
   
     # Loop over SandBoxes 
     for i in `seq 0 $( expr $nJobs - 1 )` ; do
@@ -886,8 +883,15 @@ get_out(){
         else
           fileList=`ls $pnfsdir${sandboxes[$i]}`
         fi
-        
+	
+	nFilesToHadd=`echo $fileList|sed 's: :\n:g'|grep -c -e ".root"`
+	
         for file in $fileList ; do
+	
+	  if [ $i -eq 0 ] && [ $nFilesToHadd -eq 1 ] && [ `echo $file|grep -e ".root"|wc -l` -eq 1 ];then
+	    hadd_local_command="hadd -f ${file%.root}_${taskName}_$tagID.root"
+	  fi
+        
 	
 	  #making output file name
           test=`echo $file | (grep "\.")`
@@ -924,6 +928,7 @@ get_out(){
           fi
         	     
           echo -e "		 ${YEL}$outDir/$outfile${DEF}"
+	  hadd_local_command="$hadd_local_command "`echo $outDir/$outfile|grep '.root'`
         done
       fi
       
@@ -950,6 +955,20 @@ get_out(){
     done
     cd ..
     rm -rf $tmpdir 
+    
+    
+    #LOCAL HADD (only if 1 file present)
+    if [ $local_hadd -eq 1 ];then
+      echo "nFilesToHadd: $nFilesToHadd"
+      if [ $nFilesToHadd -ne 1 ];then
+        echo -e "${CYAN}[btask] WARNING :${DEF} I can do a local hadd only if 1 output root file is present ! I'm not doing the hadd ..."
+      else
+        echo -e "${GREEN}[btask] INFO :${DEF} Doing a local hadd for task $taskFullName ..." 
+        echo "($hadd_local_command)"
+	$hadd_local_command  
+      fi
+    
+    fi
     
     
     if [ $clean -eq 1 ];then
@@ -980,22 +999,14 @@ resubmit(){
     #resubmit only if job is crashed
     if [ `get_job_status` -ne 0 ];then continue;fi
  
-    #checking if $tarFile is present
-    if [[ ! -f $tarFile && $pnfs -eq 0 ]] || [[ $pnfs -gt 0  && `ls $pnfsdir${sandboxes[$i]}|wc -l` -eq 0 ]];then
-      echo -e "${CYAN}[btask] WARNING :${DEF} No output files were present for job "${taskids[$i]}
-      echo -e "	    ==> resubmitting the job ${YEL}${taskids[$i]}${DEF}"
-      if [ "$LABO" == "IIHE" ] ; then
-        if [ "$wtime" == "DEFAULT" ] ; then
-          QSOPT=""
-        else
-          QSOPT="-l walltime=$wtime"
-        fi
-        qsub $QSOPT -N ${taskids[$i]} -q $queueName -o `pwd`/stdout_retry -e `pwd`/stderr_retry qsub.sh > /dev/null
-      fi
-      if [ "$LABO" == "CERN" ] ; then
-        bsub -J ${taskids[$i]} -q $queueName -o `pwd`/stdout_retry -e `pwd`/stderr_retry qsub.sh > /dev/null
-      fi
+    echo -e "${CYAN}[btask] WARNING :${DEF} No output files were present for job "${taskids[$i]}
+    echo -e "	  ==> resubmitting the job ${YEL}${taskids[$i]}${DEF}"
+    if [ "$LABO" == "IIHE" ] ; then
+      qsub -l walltime=$wtime -N ${taskids[$i]} -q $queueName -o `pwd`/stdout_retry -e `pwd`/stderr_retry qsub.sh > /dev/null
+    elif [ "$LABO" == "CERN" ] ; then
+      bsub -J ${taskids[$i]} -q $queueName -o `pwd`/stdout_retry -e `pwd`/stderr_retry qsub.sh > /dev/null
     fi
+    
   done
 
 }
@@ -1031,15 +1042,17 @@ jkill=0
 resubmit=0
 addroot=0
 hadd_tweak=0
+local_hadd=0
 tag="NULL"
 taskname="NULL"
 pnfs=0
 norename=0
 nojobid=0
 bw=0
+nothing=0
 
 # time of jobs
-wtime="DEFAULT"
+wtime=35:59:00
 
 for arg in $* ; do
 
@@ -1052,6 +1065,7 @@ for arg in $* ; do
     -resubmit)    resubmit=1 			   ; shift ;;
     -hadd)        addroot=1  			   ; shift ;;
     -hadd_tweak)  addroot=1 ; hadd_tweak=1	   ; shift ;;
+    -local_hadd)  local_hadd=1			   ; shift ;;
     -task)                    taskname=$2  ; shift ; shift ;;
     -t)                       taskname=$2  ; shift ; shift ;;
     -tag)                     tag=$2       ; shift ; shift ;;
@@ -1061,6 +1075,7 @@ for arg in $* ; do
     -nojobid)     nojobid=1                        ; shift ;;   
     -bw)          bw=1                             ; shift ;;
     -wtime)       wtime=$2                 ; shift ; shift ;;
+    -nothing)     nothing=1			   ; shift ;;
     -help)        Usage ;;
     *) ;;
   esac
@@ -1076,6 +1091,7 @@ test=`expr $test + $getout`
 test=`expr $test + $jkill`
 test=`expr $test + $resubmit`
 test=`expr $test + $addroot`
+test=`expr $test + $nothing`
 
 if [ $test -eq 0 ] ; then
   echo -e "${RED}[btask] ERROR :${DEF} No valid arguments !"
@@ -1171,5 +1187,5 @@ if [ $addroot -eq 1 ] ; then
   
 fi # end [ $addroot -eq 1 ]
 
-
+if [ $nothing -eq 1 ]; then echo "Sourcing btask ..." ; fi
  
