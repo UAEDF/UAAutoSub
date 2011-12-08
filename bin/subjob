@@ -28,15 +28,13 @@ if [ `uname -a | grep 'iihe.ac.be' | wc -l` -eq 1 ];then
   LABO=IIHE
   ScratchArea='/scratch'
   QueueName='localgrid@cream01'
-else
-  if [ `uname -a | grep 'cern.ch' | wc -l` -eq 1 ];then
+elif [ `uname -a | grep 'cern.ch' | wc -l` -eq 1 ];then
     LABO=CERN
     ScratchArea='/tmp/xjanssen'
     QueueName='8nm'
-  else
+else
     echo "Warning , don't know were you are, correct before starting subjob."
     exit -1 
-  fi
 fi
 
 ### Basic config
@@ -90,7 +88,7 @@ echo 'InputSandDir   : ' $InputSandDir
 echo 'InputSandList  : ' $InputSandList
 echo 'OutputSandList : ' $OutputSandList
 echo 'Executable     : ' $Executable
-  echo 'IIHE walltime  : ' $wtime
+echo 'IIHE walltime  : ' $wtime
 
 ### Create Sandbox directory
 if [ "$jobid" == "NULL" ] ; then
@@ -167,17 +165,15 @@ chmod +x $subfile
 ### Submit job
 echo "JobID           : $jobid"
 if [ `uname -a | grep 'iihe.ac.be' | wc -l` -eq 1 ];then
+  #echo "qsub $QSOPT -N $jobid -q $QueueName -o $SandboxDir/stdout -e $SandboxDir/stderr $subfile" > .last_command_sent
   qsub $QSOPT -N $jobid -q $QueueName -o $SandboxDir/stdout -e $SandboxDir/stderr $subfile
   echo "Job id                    Name             User            Time Use S Queue"
   echo "------------------------- ---------------- --------------- -------- - -----"
   qstat -u $USER $QueueName | grep $jobid
+elif [ `uname -a | grep lxplus | wc -l` -eq 1 ];then
+  echo "Setting lxplus environment"
+  bsub -J $jobid -q $QueueName -o $SandboxDir/stdout -e $SandboxDir/stderr $subfile 
+  bjobs | grep $jobid
 else
-  if [ `uname -a | grep lxplus | wc -l` -eq 1 ];then
-    echo "Setting lxplus environment"
-    bsub -J $jobid -q $QueueName -o $SandboxDir/stdout -e $SandboxDir/stderr $subfile 
-    bjobs | grep $jobid
-  else
-    echo "Warning , don't know were you are, correct before starting subjob."
-  fi
+  echo "Warning , don't know were you are, correct before starting subjob."
 fi
-
