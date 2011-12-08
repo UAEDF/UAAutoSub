@@ -51,7 +51,7 @@ For more details see '"${BLUE}https://twiki.cern.ch/twiki/bin/viewauth/CMS/UAToo
                  Need to provide details of classes to hadd in config/btask.conf.
 '"\n    ${RED}get ${DEF}"'       : Will retrieve for all finished tasks all outputs specified in outList and put them in outDir . 
                  Files will have name : myfilename_taskname_tag_jobid.extension. Will clean by default the tasks.
-                 ('${CYAN}-noremame${DEF}'   : skip adding _taskname_tag to myfilename)
+                 ('${CYAN}-norename${DEF}'   : skip adding _taskname_tag to myfilename)
                  ('${CYAN}-nojobid${DEF}'    : skip adding _jobid number to myfilename)
                  ('${CYAN}-local_hadd${DEF}' : will perform an hadd on files after the get [for now works only if just 1 output root file] )
 '"\n    ${RED}kill ${DEF}"'      : Will kill all jobs.
