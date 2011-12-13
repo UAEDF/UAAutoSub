@@ -280,23 +280,13 @@ print_status(){
   done
 }
 
-#################################################################################################################################
-set_qstat(){
-    if [ "$LABO" == "IIHE" ] ; then
-      QSTAT=$(echo "qstat -u $USER $queueName") 
-    fi
-    if [ "$LABO" == "CERN" ] ; then
-      QSTAT=$(echo "bjobs")
-    fi
-}
 
 #################################################################################################################################
 print_task_status(){
   echo -e "-------------------------  ${BLUE}$taskFullName${DEF}  ----------------------------"
   
   for i in `seq 0 $( expr $nJobs - 1 )` ; do
-    set_qstat
-    res=`( $QSTAT 2>/dev/null | grep  ' '"${taskids[$i]}"' ')`   
+    res=`( cat $qstat_output | grep  ' '"${taskids[$i]}"' ')`   
     case `get_job_status` in
       -2 ) echo -e "${RED}$res${DEF}"  ; continue ;;
       -1 ) echo -e "${YEL}$res${DEF}"  ; continue ;;
@@ -359,9 +349,8 @@ print_task_status_fast(){
 #################################################################################################################################
 get_task_status(){
   ALLJOBDONE=1
-  set_qstat
   for i in `seq 0 $( expr $nJobs - 1 )` ; do
-    res=`($QSTAT 2>/dev/null | grep  ' '"${taskids[$i]}"' ')` 
+    res=`(cat $qstat_output | grep  ' '"${taskids[$i]}"' ')` 
     if [ ! -z "$res" ]; then
       ALLJOBDONE=0
     fi
@@ -372,8 +361,7 @@ get_task_status(){
 
 #################################################################################################################################
 get_job_status(){
-  set_qstat
-  res=`($QSTAT 2>/dev/null | grep  ' '"${taskids[$i]}"' ')` 
+  res=`(cat $qstat_output | grep  ' '"${taskids[$i]}"' ')` 
   if [ ! -z "$res" ]; then
     if [ "$LABO" == "IIHE" ] ; then
       PEND='Q'
@@ -793,8 +781,7 @@ kill_jobs(){
     for i in `seq 0 $( expr $nJobs - 1 )`; do
       echo -e "${GREEN}[btask] INFO :${DEF} Killing SubTask: "${taskids[$i]}
       # Kill job (if still running)
-      set_qstat
-      res=`($QSTAT 2>/dev/null | grep ${taskids[$i]})` 
+      res=`(cat $qstat_output | grep ${taskids[$i]})` 
       if [ ! -z "$res" ]; then
         id=`(echo $res | awk '{print $1}' | awk -F'.' '{print $1}')`
         if [ "$LABO" == "IIHE" ] ; then
@@ -827,6 +814,12 @@ kill_jobs(){
 #################################################################################################################################
 get_out(){
 
+  if [ $local_hadd -eq 1 ];then def=1 ; answer=n ; fi
+  if [ $local_hadd -eq 1 ];then
+    hash hadd 2>&- || { echo -e "${RED}[btask] ERROR :${DEF} hadd not accessible ! Please enable root ..." ; exit 1 ; };
+  fi
+  
+  
   get_tasks
 
   for job in $joblist ; do
@@ -856,6 +849,7 @@ get_out(){
     case $a in n ) clean=0 ;; esac
     
     nFilesToHadd=0
+    files_to_hadd=""
   
     # Loop over SandBoxes 
     for i in `seq 0 $( expr $nJobs - 1 )` ; do
@@ -889,7 +883,9 @@ get_out(){
         for file in $fileList ; do
 	
 	  if [ $i -eq 0 ] && [ $nFilesToHadd -eq 1 ] && [ `echo $file|grep -e ".root"|wc -l` -eq 1 ];then
-	    hadd_local_command="hadd -f ${file%.root}_${taskName}_$tagID.root"
+	    hadd_local_command="hadd -f ${file%.root}"
+	    if [ $norename -eq 0 ];then hadd_local_command="${hadd_local_command}_${taskName}_$tagID"; fi
+	    hadd_local_command="${hadd_local_command}.root"
 	  fi
         
 	
@@ -928,7 +924,9 @@ get_out(){
           fi
         	     
           echo -e "		 ${YEL}$outDir/$outfile${DEF}"
-	  hadd_local_command="$hadd_local_command "`echo $outDir/$outfile|grep '.root'`
+	  
+	  #files_to_hadd="$files_to_hadd "`echo $outDir/$outfile|grep '.root'`
+	  files_to_hadd="$files_to_hadd "`echo $outfile|grep '.root'`
         done
       fi
       
@@ -938,6 +936,11 @@ get_out(){
   
       errFileIn="${sandboxes[$i]}/stderr"
       outFileIn="${sandboxes[$i]}/stdout"
+      
+      if [ -f ${sandboxes[$i]}/stdout_retry ];then
+        errFileIn="${sandboxes[$i]}/stderr_retry"
+        outFileIn="${sandboxes[$i]}/stdout_retry"
+      fi
   
       errFileOut=$taskDir"/stderr_$i"
       outFileOut=$taskDir"/stdout_$i"
@@ -963,9 +966,16 @@ get_out(){
       if [ $nFilesToHadd -ne 1 ];then
         echo -e "${CYAN}[btask] WARNING :${DEF} I can do a local hadd only if 1 output root file is present ! I'm not doing the hadd ..."
       else
-        echo -e "${GREEN}[btask] INFO :${DEF} Doing a local hadd for task $taskFullName ..." 
-        echo "($hadd_local_command)"
-	$hadd_local_command  
+        echo -e "${GREEN}[btask] INFO :${DEF} Doing a local hadd on `echo $files_to_hadd|awk '{print NF}'` files for task $taskFullName ..."
+	hadd_local_log="."`echo $hadd_local_command|awk '{print $3}'|sed 's:.root:.log:'|sed 's:\(.*/\)\(.*\):\1\.\2:'`
+        #echo "($hadd_local_command $files_to_hadd &> $hadd_local_log)"
+	$hadd_local_command $files_to_hadd &> ${hadd_local_log}
+	echo "        ==> log file: $hadd_local_log"
+	
+	#cleaning the local jobs output
+        echo -e "${GREEN}[btask] INFO :${DEF} Removing  the `echo $files_to_hadd|awk '{print NF}'` local output files for task $taskFullName ..."
+	#echo "(rm -f $files_to_hadd)"
+	rm -f $files_to_hadd
       fi
     
     fi
@@ -1107,16 +1117,15 @@ fi
 if [ `uname -a | grep 'iihe.ac.be' | wc -l` -eq 1 ];then
   LABO='IIHE'
   queueName='localgrid@cream01'
+  QSTAT=$(echo "qstat -u $USER $queueName")
+elif [ `uname -a | grep 'cern.ch' | wc -l` -eq 1 ];then
+  LABO='CERN'
+  queueName='8nh'
+  QSTAT=$(echo "bjobs")
 else
-  if [ `uname -a | grep 'cern.ch' | wc -l` -eq 1 ];then
-    LABO='CERN'
-    queueName='8nh'
-  else
-    echo "Warning , don't know were you are, correct before starting subjob."
-    exit -1 
-  fi
+  echo "Warning , don't know were you are, correct before starting subjob."
+  exit -1
 fi
-
 
 # ------------------------  SUBMIT  JOB(S) --------------------------------------
 
@@ -1133,6 +1142,12 @@ if [ $submit -eq 1 ] ; then
   add_task_to_db
 
 fi # end [ $submit -eq 1 ] 
+
+#getting qstat output ==> Necessary for all following options !
+qstat_output=`dirname $0`/.qstat_output
+rm -f $qstat_output
+$QSTAT 2>/dev/null 1>$qstat_output
+
 
 # ------------------------  KILL JOB(S) -----------------------------------------
 
