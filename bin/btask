@@ -481,10 +481,16 @@ make_autofilelist(){
   nfiles=`echo $autolist|sed "s# #\n#g"|wc -l`
   #echo '[btask] INFO : Number of files to divide :' $nfiles
   #echo '[btask] INFO : Number of Jobs to do :' $autoNJobs
-  if [ $autoNJobs -gt $nfiles ];then
-    autoNJobs=$nfiles
+  if [ $autoNJobs -ne 0 ];then
+    if [ $autoNJobs -gt $nfiles ];then
+      autoNJobs=$nfiles
+    fi
+    files_per_jobs=`expr $nfiles / $autoNJobs`
+  
+  elif [ $autoNfiles_per_jobs -ne 0 ];then
+    files_per_jobs=$autoNfiles_per_jobs
+    autoNJobs=`expr $nfiles / $autoNfiles_per_jobs`
   fi
-  files_per_jobs=`expr $nfiles / $autoNJobs`
   #echo '[btask] INFO : Files per Jobs : ' $files_per_jobs
   
   
@@ -811,6 +817,15 @@ kill_jobs(){
 
 } 
 
+is_same_size(){                 # takes file 1 file2 as entry
+  s1=`ls -l $1|awk '{print $5}'`
+  s1=`ls -l $2|awk '{print $5}'`
+  if [ "$s1" == "$s2" ];then echo true;
+  else echo false;
+  fi
+}
+
+
 #################################################################################################################################
 get_out(){
 
@@ -836,7 +851,10 @@ get_out(){
     echo -e "	  ==> log files are in ${YEL}$taskDir${DEF}"
   
     # Go to outDir 
-  
+    if [ ! -d $outDir ];then
+      mkdir -p $outDir
+      echo -e "${GREEN}[btask] INFO :${DEF} Making dir "$outDir
+    fi
     cd $outDir
   
     tmpdir=$taskName'_'$taskId
@@ -916,15 +934,25 @@ get_out(){
           fi
           
 	  #untaring/copying the files
+	  notCopied=0
           if [ $pnfs -eq 0 ];then
             tar xzf $tarFile $file 
             mv $file ../$outfile
           else
-            dccp $pnfsdir${sandboxes[$i]}/$file ../$outfile &> /dev/null
+
+	    #checking if file already exists, is newer and same size as output
+	    if [ -f ../$outfile ] && [ $pnfsdir${sandboxes[$i]}/$file -ot ../$outfile ] \
+	       && [ `is_same_size $pnfsdir${sandboxes[$i]}/$file ../$outfile` ];then notCopied=1
+	    
+	    else  dccp $pnfsdir${sandboxes[$i]}/$file ../$outfile &> /dev/null
+	    fi
           fi
-        	     
-          echo -e "		 ${YEL}$outDir/$outfile${DEF}"
-	  
+          
+	  if [ $notCopied -eq 0 ];then
+            echo -e "              ${YEL}$outDir/$outfile${DEF}"
+	  else
+	    echo -e "           ${GREEN}X  $outDir/$outfile${DEF}"
+	  fi
 	  #files_to_hadd="$files_to_hadd "`echo $outDir/$outfile|grep '.root'`
 	  files_to_hadd="$files_to_hadd "`echo $outfile|grep '.root'`
         done
@@ -945,7 +973,7 @@ get_out(){
       errFileOut=$taskDir"/stderr_$i"
       outFileOut=$taskDir"/stdout_$i"
   
-      cp $errFileIn* $errFileOut
+      cp $errFileIn* $errFileOut 2> /dev/null
       cp $outFileIn* $outFileOut
     
   
@@ -970,6 +998,9 @@ get_out(){
 	hadd_local_log="."`echo $hadd_local_command|awk '{print $3}'|sed 's:.root:.log:'|sed 's:\(.*/\)\(.*\):\1\.\2:'`
         #echo "($hadd_local_command $files_to_hadd &> $hadd_local_log)"
 	$hadd_local_command $files_to_hadd &> ${hadd_local_log}
+	echo -e "\n HADD FINISHED" >> ${hadd_local_log}
+	#echo " *************  DOING A VERY BAD LOCAL_HADD !!!!!!!!! *****************"
+	#$hadd_local_command *.root &> ${hadd_local_log}
 	echo "        ==> log file: $hadd_local_log"
 	
 	#cleaning the local jobs output
@@ -1012,7 +1043,7 @@ resubmit(){
     echo -e "${CYAN}[btask] WARNING :${DEF} No output files were present for job "${taskids[$i]}
     echo -e "	  ==> resubmitting the job ${YEL}${taskids[$i]}${DEF}"
     if [ "$LABO" == "IIHE" ] ; then
-      qsub -l walltime=$wtime -N ${taskids[$i]} -q $queueName -o `pwd`/stdout_retry -e `pwd`/stderr_retry qsub.sh > /dev/null
+      qsub -l walltime=$wtime -N ${taskids[$i]} -q $queueName -j oe -o `pwd`/stdout_retry qsub.sh > /dev/null
     elif [ "$LABO" == "CERN" ] ; then
       bsub -J ${taskids[$i]} -q $queueName -o `pwd`/stdout_retry -e `pwd`/stderr_retry qsub.sh > /dev/null
     fi
