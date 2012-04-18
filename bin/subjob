@@ -166,7 +166,7 @@ chmod +x $subfile
 echo "JobID           : $jobid"
 if [ `uname -a | grep 'iihe.ac.be' | wc -l` -eq 1 ];then
   #echo "qsub $QSOPT -N $jobid -q $QueueName -o $SandboxDir/stdout -e $SandboxDir/stderr $subfile" > .last_command_sent
-  qsub $QSOPT -N $jobid -q $QueueName -o $SandboxDir/stdout -e $SandboxDir/stderr $subfile
+  qsub $QSOPT -N $jobid -q $QueueName -j oe -o $SandboxDir/stdout $subfile
   echo "Job id                    Name             User            Time Use S Queue"
   echo "------------------------- ---------------- --------------- -------- - -----"
   qstat -u $USER $QueueName | grep $jobid
