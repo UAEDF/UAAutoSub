@@ -21,7 +21,7 @@ SETVAR
 ### Where are we ? CERN or IIHE
 
 LABO='NULL'
-ScratchArea='/tmp'
+ScratchArea='/scratch'
 QueueName='NULL'
 
 if [ `uname -a | grep 'iihe.ac.be' | wc -l` -eq 1 ];then
@@ -138,9 +138,11 @@ Exec=$Executable
 
 cp /dev/null $subfile
 echo "#!/bin/bash"                           		>> $subfile
-echo "cd $ScratchArea"                        		>> $subfile
-echo "mkdir  $ScratchArea/$jobid"              		>> $subfile
-echo "cd $ScratchArea/$jobid"                  		>> $subfile   
+if [ `uname -a | grep 'iihe.ac.be' | wc -l` -eq 1 ];then
+  echo "cd $ScratchArea"                        		>> $subfile
+  echo "mkdir  $ScratchArea/$jobid"              		>> $subfile
+  echo "cd $ScratchArea/$jobid"                  		>> $subfile   
+fi
 echo 'export LD_LIBRARY_PATH=`pwd`:$LD_LIBRARY_PATH'	>> $subfile   
 echo "cp $InputSandbox ."                    		>> $subfile
 echo "tar xzf InputSandbox.tgz"              		>> $subfile
@@ -160,7 +162,7 @@ else
   #echo "ln -s /pnfs/iihe/cms/store/user/$USER/$SandboxDir/OutputSandbox.tgz $SandboxDir/OutputSandbox.tgz"      >> $subfile
   #echo "rm -f OutputSandbox.tgz"      >> $subfile
 fi
-echo "sleep 30" >> $subfile
+echo "sleep 240" >> $subfile
 chmod +x $subfile
 ### Submit job
 echo "JobID           : $jobid"
