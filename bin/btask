@@ -259,7 +259,7 @@ print_status(){
   if [ "$LABO" == "IIHE" ] ; then
     echo -e "${BLUE}#CPU      Free    Total Jobs      Running Waiting ComputingElement${DEF}    "
     echo -e "----------------------------------------------------------------------"
-    lcg-infosites --vo cms ce | grep "cream01.iihe.ac.be"
+    lcg-infosites --vo cms ce | grep "cream02.iihe.ac.be"
     echo -e "######################################################################"
   fi
   get_tasks
@@ -791,7 +791,7 @@ kill_jobs(){
       if [ ! -z "$res" ]; then
         id=`(echo $res | awk '{print $1}' | awk -F'.' '{print $1}')`
         if [ "$LABO" == "IIHE" ] ; then
-          qdel $id.cream01 
+          qdel $id.cream02 
         elif [ "$LABO" == "CERN" ] ; then
           bkill $id
         fi
@@ -1038,7 +1038,7 @@ resubmit(){
   
   tarFile="OutputSandbox.tgz"
   for i in `seq 0 $( expr $nJobs - 1 )` ; do
-<<<<<<< btask
+#<<<<<<< btask
 
     ST=`get_job_status` 
     if [ "$ST" == "0" ] ; then 
@@ -1062,21 +1062,21 @@ resubmit(){
       fi
 
     fi
-=======
-    cd ${sandboxes[$i]}
-   
-    #resubmit only if job is crashed
-    if [ `get_job_status` -ne 0 ];then continue;fi
- 
-    echo -e "${CYAN}[btask] WARNING :${DEF} No output files were present for job "${taskids[$i]}
-    echo -e "	  ==> resubmitting the job ${YEL}${taskids[$i]}${DEF}"
-    if [ "$LABO" == "IIHE" ] ; then
-      qsub -l walltime=$wtime -N ${taskids[$i]} -q $queueName -j oe -o `pwd`/stdout_retry qsub.sh > /dev/null
-    elif [ "$LABO" == "CERN" ] ; then
-      bsub -J ${taskids[$i]} -q $queueName -o `pwd`/stdout_retry -e `pwd`/stderr_retry qsub.sh > /dev/null
-    fi
-    
->>>>>>> 1.34
+#=======
+#    cd ${sandboxes[$i]}
+#   
+#    #resubmit only if job is crashed
+#    if [ `get_job_status` -ne 0 ];then continue;fi
+# 
+#    echo -e "${CYAN}[btask] WARNING :${DEF} No output files were present for job "${taskids[$i]}
+#    echo -e "	  ==> resubmitting the job ${YEL}${taskids[$i]}${DEF}"
+#    if [ "$LABO" == "IIHE" ] ; then
+#      qsub -l walltime=$wtime -N ${taskids[$i]} -q $queueName -j oe -o `pwd`/stdout_retry qsub.sh > /dev/null
+#    elif [ "$LABO" == "CERN" ] ; then
+#      bsub -J ${taskids[$i]} -q $queueName -o `pwd`/stdout_retry -e `pwd`/stderr_retry qsub.sh > /dev/null
+#    fi
+#    
+#>>>>>>> 1.34
   done
 
 }
@@ -1179,7 +1179,7 @@ fi
 
 if [ `uname -a | grep 'iihe.ac.be' | wc -l` -eq 1 ];then
   LABO='IIHE'
-  queueName='localgrid@cream01'
+  queueName='localgrid@cream02'
   QSTAT=$(echo "qstat -u $USER $queueName")
 elif [ `uname -a | grep 'cern.ch' | wc -l` -eq 1 ];then
   LABO='CERN'

@@ -27,7 +27,7 @@ QueueName='NULL'
 if [ `uname -a | grep 'iihe.ac.be' | wc -l` -eq 1 ];then
   LABO=IIHE
   ScratchArea='/scratch'
-  QueueName='localgrid@cream01'
+  QueueName='localgrid@cream02'
 elif [ `uname -a | grep 'cern.ch' | wc -l` -eq 1 ];then
     LABO=CERN
     ScratchArea='/tmp/xjanssen'
